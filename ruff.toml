@@ -1,0 +1,39 @@
+line-length = 100
+respect-gitignore = true
+
+# DO NOT enable unsafe fixes globally in a template
+fix = true
+unsafe-fixes = false
+
+[lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "I",    # import sorting
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "SIM",  # simplify
+    "C4",   # comprehensions (very good signal)
+    "PIE",  # misc improvements
+]
+ignore = [
+    "E501", # formatter handles line length
+]
+
+[lint.isort]
+combine-as-imports = true
+force-sort-within-sections = true
+# 👇 rename this when using the template
+known-first-party = ["project_name"]
+
+[lint.per-file-ignores]
+"tests/**/*.py" = [
+    "S101",  # allow asserts
+    "D",     # no docstring requirements in tests
+]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "lf"

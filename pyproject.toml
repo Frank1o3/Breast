@@ -1,0 +1,23 @@
+[project]
+name = "breast"
+version = "0.1.0"
+description = "Breast model physics"
+authors = [
+    {name = "Frank1o3",email = "jahdy1o3@gmail.com"}
+]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "pygame (>=2.6.1,<3.0.0)",
+    "numba (>=0.63.1,<0.64.0)",
+    "moderngl (>=5.12.0,<6.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+sim = "breast.sim:main"
