@@ -1,6 +1,23 @@
 {
-	"python-envs.defaultEnvManager": "ms-python.python:poetry",
-	"python-envs.defaultPackageManager": "ms-python.python:poetry",
-	"python-envs.pythonProjects": [],
-	"editor.detectIndentation": false
+    "python-envs.defaultEnvManager": "ms-python.python:poetry",
+    "python-envs.defaultPackageManager": "ms-python.python:poetry",
+    "python-envs.pythonProjects": [],
+    "editor.detectIndentation": false,
+    "cSpell.words": [
+        "blit",
+        "DOUBLEBUF",
+        "fastmath",
+        "frombuffer",
+        "getpid",
+        "HEMI",
+        "linalg",
+        "moderngl",
+        "nbytes",
+        "njit",
+        "OPENGL",
+        "SRCALPHA",
+        "tobytes",
+        "verlet",
+        "WASD"
+    ]
 }
