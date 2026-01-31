@@ -1,3 +1,4 @@
+# renderer.py
 from pathlib import Path
 
 import moderngl
@@ -5,90 +6,251 @@ import numpy as np
 import pygame
 
 from breast.solver_numpy import NumpyBreastSolver
+from breast.types import PROJ, VIEW
+
+# ------------------------
+# Matrix helpers
+# ------------------------
+
+
+def perspective(fov_y: float, aspect: float, near: float, far: float) -> PROJ:
+    f = 1.0 / np.tan(fov_y * 0.5)
+    return np.array(
+        [
+            [f / aspect, 0.0, 0.0, 0.0],
+            [0.0, f, 0.0, 0.0],
+            [0.0, 0.0, (far + near) / (near - far), (2.0 * far * near) / (near - far)],
+            [0.0, 0.0, -1.0, 0.0],
+        ],
+        dtype=np.float32,
+    ).T
+
+
+def rotation_x(angle: float) -> PROJ:
+    c, s = np.cos(angle), np.sin(angle)
+    return np.array(
+        [
+            [1, 0, 0, 0],
+            [0, c, -s, 0],
+            [0, s, c, 0],
+            [0, 0, 0, 1],
+        ],
+        dtype=np.float32,
+    ).T
+
+
+def rotation_y(angle: float) -> PROJ:
+    c, s = np.cos(angle), np.sin(angle)
+    return np.array(
+        [
+            [c, 0, s, 0],
+            [0, 1, 0, 0],
+            [-s, 0, c, 0],
+            [0, 0, 0, 1],
+        ],
+        dtype=np.float32,
+    ).T
+
+
+def translate(x: float, y: float, z: float) -> PROJ:
+    m = np.eye(4, dtype=np.float32)
+    m[0, 3] = x
+    m[1, 3] = y
+    m[2, 3] = z
+    return m.T
+
+
+# ------------------------
+# Renderer
+# ------------------------
 
 
 class Renderer:
     def __init__(
-        self, ctx: moderngl.Context, solver: NumpyBreastSolver, width: int = 800, height: int = 600
-    ) -> None:
+        self,
+        ctx: moderngl.Context,
+        solver: NumpyBreastSolver,
+        width: int = 800,
+        height: int = 600,
+    ):
         self.ctx = ctx
         self.ctx.enable(moderngl.DEPTH_TEST)
+        self.ctx.disable(moderngl.CULL_FACE)
 
-        # Load shaders with geometry shader
-        shader_path = Path("src/breast/shaders")
+        self.width = width
+        self.height = height
+
+        pygame.font.init()
+        self.font = pygame.font.SysFont("monospace", 18)
+
+        base = Path(__file__).parent / "shaders"
+
+        # 3D program
         self.prog = self.ctx.program(
-            vertex_shader=shader_path.joinpath("basic.vert").read_text(),
-            geometry_shader=shader_path.joinpath("basic.geom").read_text(),
-            fragment_shader=shader_path.joinpath("basic.frag").read_text(),
+            vertex_shader=(base / "mesh.vert").read_text(),
+            geometry_shader=(base / "mesh.geom").read_text(),
+            fragment_shader=(base / "mesh.frag").read_text(),
         )
 
-        # Rendering mode: 0 = filled, 1 = wireframe only, 2 = filled with edges
-        self.render_mode = 0
+        # UI program
+        self.ui_prog = self.ctx.program(
+            vertex_shader=(base / "ui.vert").read_text(),
+            fragment_shader=(base / "ui.frag").read_text(),
+        )
 
-        # VBO (Positions ONLY) - Dynamic
-        self.vbo = self.ctx.buffer(solver.pos.astype("f4").tobytes())
+        # UI quad (updated every frame)
+        self.ui_vbo = self.ctx.buffer(reserve=4 * 4 * 4)
+        self.ui_vao = self.ctx.vertex_array(
+            self.ui_prog,
+            [(self.ui_vbo, "2f 2f", "in_pos", "in_uv")],
+        )
+        self.ui_texture: moderngl.Texture | None = None
 
-        # EBO (Triangle Indices ONLY) - Static
-        indices = solver.faces.astype("i4").flatten()
-        self.ebo = self.ctx.buffer(indices.tobytes())
-
-        # VAO - Single vertex array for everything
+        # Mesh buffers
+        self.vbo = self.ctx.buffer(reserve=solver.pos.nbytes, dynamic=True)
+        self.ebo = self.ctx.buffer(solver.faces.astype("i4").ravel().tobytes())
         self.vao = self.ctx.vertex_array(
-            self.prog, [(self.vbo, "3f", "in_vert")], index_buffer=self.ebo
+            self.prog,
+            [(self.vbo, "3f", "in_position")],
+            self.ebo,
         )
 
         print(f"Renderer initialized: {len(solver.faces)} triangles")
 
-    def cycle_render_mode(self):
-        """Cycle through render modes: filled -> wireframe -> filled+edges"""
-        self.render_mode = (self.render_mode + 1) % 3
-        modes = ["Filled", "Wireframe", "Filled + Edges"]
-        print(f"Render mode: {modes[self.render_mode]}")
-        return modes[self.render_mode]
+    # ------------------------
+    # Draw
+    # ------------------------
 
-    def draw(self, solver, camera_rot: tuple[float, float], scale: float) -> None:
-        self.ctx.clear(0.1, 0.1, 0.1)
+    def draw(
+        self,
+        solver: NumpyBreastSolver,
+        camera_rot: list[float],
+        camera_pos: list[float],
+        scale: float,
+        stiffness: float,
+        pressure: float,
+        fps: float,
+    ) -> None:
+        self.ctx.clear(0.1, 0.1, 0.15, 1.0)
 
-        # Update ONLY positions - single GPU upload per frame
-        self.vbo.write(solver.pos.astype("f4").tobytes())
+        world_pos = solver.pos * (scale * 0.01)
+        self.vbo.orphan()
+        self.vbo.write(world_pos.astype("f4"))
 
-        # Calculate matrices
-        mvp, model = self._get_matrices(camera_rot, scale, offset=(0.0, -0.6))
+        view, proj = self._get_matrices(camera_rot, tuple(camera_pos))  # type: ignore
+        self.prog["u_view"].write(view.tobytes())  # type: ignore
+        self.prog["u_proj"].write(proj.tobytes())  # type: ignore
 
-        # Send uniforms
-        self.prog["mvp"].write(mvp.T.astype("f4").tobytes())
-        self.prog["model"].write(model.T.astype("f4").tobytes())
-        self.prog["light_pos"].value = (10.0, 20.0, 10.0)
-        self.prog["wireframe_mode"].value = self.render_mode
-        self.prog["wireframe_width"].value = 1.5
-        self.prog["base_color"].value = (0.9, 0.7, 0.7, 1.0)
+        light_world = np.array([5.0, 8.0, 3.0, 1.0], dtype=np.float32)
+        light_view = (view.T @ light_world)[:3]
 
-        # Single draw call - GPU does all the work
-        self.vao.render(moderngl.TRIANGLES)
+        self.prog["u_light_pos_view"].value = tuple(light_view)  # type: ignore
+        self.prog["u_light_color"].value = (1.0, 0.95, 0.9)  # type: ignore
 
+        self.vao.render()
+
+        self._draw_ui_overlay(scale, stiffness, pressure, fps)
         pygame.display.flip()
 
-    def _get_matrices(self, rot, scale, offset):
-        """Calculate MVP and Model matrices"""
-        # Rotation matrices
-        cx, sx = np.cos(rot[0]), np.sin(rot[0])
-        cy, sy = np.cos(rot[1]), np.sin(rot[1])
+    # ------------------------
+    # Camera
+    # ------------------------
 
-        RY = np.array([[cy, 0, sy, 0], [0, 1, 0, 0], [-sy, 0, cy, 0], [0, 0, 0, 1]], dtype="f4")
-        RX = np.array([[1, 0, 0, 0], [0, cx, -sx, 0], [0, sx, cx, 0], [0, 0, 0, 1]], dtype="f4")
+    def _get_matrices(
+        self, camera_rot: list[float], camera_pos: tuple[float, float, float]
+    ) -> tuple[VIEW, PROJ]:
+        pitch, yaw = camera_rot
+        cx, cy, cz = camera_pos
 
-        # Scale
-        s = scale / 100.0
-        S = np.diag([s, s, s, 1.0]).astype("f4")
+        view = translate(-cx, -cy, -cz) @ rotation_y(-yaw) @ rotation_x(-pitch)
 
-        # Translation
-        tx, ty = offset
-        T = np.array([[1, 0, 0, tx], [0, 1, 0, ty], [0, 0, 1, 0], [0, 0, 0, 1]], dtype="f4")
+        proj = perspective(
+            np.radians(60.0),
+            self.width / self.height,
+            0.1,
+            100.0,
+        )
+        return view, proj
 
-        # Model matrix (for lighting)
-        model = RX @ RY @ S
+    # ------------------------
+    # UI Overlay
+    # ------------------------
 
-        # MVP matrix (for projection)
-        mvp = T @ model
+    def _surface_to_texture(self, surface: pygame.Surface) -> moderngl.Texture:
+        surface = pygame.transform.flip(surface, False, True)
+        data = pygame.image.tobytes(surface, "RGBA", False)
 
-        return mvp, model
+        tex = self.ctx.texture(surface.get_size(), 4, data)
+        tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
+        tex.swizzle = "RGBA"
+        return tex
+
+    def _draw_ui_overlay(
+        self,
+        scale: float,
+        stiffness: float,
+        pressure: float,
+        fps: float,
+    ) -> None:
+        self.ctx.enable(moderngl.BLEND)
+        self.ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
+
+        lines = [
+            f"FPS: {fps:.1f}",
+            f"Stiffness: {stiffness:.3f}",
+            f"Pressure: {pressure:.4f}",
+        ]
+
+        line_h = self.font.get_height()
+        w = max(self.font.size(line)[0] for line in lines)
+        h = line_h * len(lines)
+
+        surface = pygame.Surface((w, h), pygame.SRCALPHA)
+
+        y = 0
+        for line in lines:
+            surface.blit(self.font.render(line, True, (220, 220, 220)), (0, y))
+            y += line_h
+
+        if self.ui_texture:
+            self.ui_texture.release()
+        self.ui_texture = self._surface_to_texture(surface)
+        self.ui_texture.use(0)
+
+        # --- Compute top-left quad ---
+        margin = 10
+        ndc_w = 2.0 * w / self.width
+        ndc_h = 2.0 * h / self.height
+        mx = 2.0 * margin / self.width
+        my = 2.0 * margin / self.height
+
+        x0 = -1.0 + mx
+        y0 = 1.0 - my
+        x1 = x0 + ndc_w
+        y1 = y0 - ndc_h
+
+        quad = np.array(
+            [
+                x0,
+                y0,
+                0.0,
+                1.0,
+                x0,
+                y1,
+                0.0,
+                0.0,
+                x1,
+                y0,
+                1.0,
+                1.0,
+                x1,
+                y1,
+                1.0,
+                0.0,
+            ],
+            dtype="f4",
+        )
+
+        self.ui_vbo.write(quad.tobytes())
+        self.ui_prog["u_texture"] = 0
+        self.ui_vao.render(mode=moderngl.TRIANGLE_STRIP)

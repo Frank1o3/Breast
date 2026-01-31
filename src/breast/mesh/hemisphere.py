@@ -4,11 +4,10 @@ import math
 import numpy as np
 
 from breast.models import Point, Spring
+from breast.types import GEN_HEMI
 
 
-def generate_hemisphere(
-    radius: float = 5.0, rings: int = 6, segments: int = 12
-) -> tuple[list[Point], list[Spring], np.ndarray]:
+def generate_hemisphere(radius: float = 5.0, rings: int = 6, segments: int = 12) -> GEN_HEMI:
     """
     Generate a UV-sphere style hemisphere mesh.
 
@@ -127,5 +126,6 @@ def generate_hemisphere(
             add_unique_spring(i1, i4)
 
     print(f"Debug: Created {len(springs)} springs")
-    print(np.array(faces, dtype=np.int32))
-    return points, springs, np.array(faces, dtype=np.int32)
+    np_faces = np.array(faces, dtype=np.int32)
+    print(np_faces)
+    return points, springs, np_faces
