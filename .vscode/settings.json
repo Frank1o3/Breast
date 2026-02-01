@@ -18,6 +18,7 @@
         "OPENGL",
         "smoothstep",
         "SRCALPHA",
+        "substeps",
         "tobytes",
         "verlet",
         "WASD"
