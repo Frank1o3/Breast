@@ -5,7 +5,8 @@ import moderngl
 import numpy as np
 import pygame
 
-from breast.solver_numpy import NumpyBreastSolver
+from breast.models import Vector3
+from breast.solver_numpy import UltraStableSolver
 from breast.types import PROJ, VIEW
 
 # ------------------------
@@ -69,16 +70,16 @@ class Renderer:
     def __init__(
         self,
         ctx: moderngl.Context,
-        solver: NumpyBreastSolver,
+        solver: UltraStableSolver,
         width: int = 800,
         height: int = 600,
     ):
         self.ctx = ctx
         self.ctx.enable(moderngl.DEPTH_TEST)
-        self.ctx.disable(moderngl.CULL_FACE)
 
         self.width = width
         self.height = height
+        self.solver = solver
 
         pygame.font.init()
         self.font = pygame.font.SysFont("monospace", 18)
@@ -107,15 +108,15 @@ class Renderer:
         self.ui_texture: moderngl.Texture | None = None
 
         # Mesh buffers
-        self.vbo = self.ctx.buffer(reserve=solver.pos.nbytes, dynamic=True)
-        self.ebo = self.ctx.buffer(solver.faces.astype("i4").ravel().tobytes())
+        self.vbo = self.ctx.buffer(reserve=self.solver.pos.nbytes, dynamic=True)
+        self.ebo = self.ctx.buffer(self.solver.faces.astype("i4").ravel().tobytes())
         self.vao = self.ctx.vertex_array(
             self.prog,
             [(self.vbo, "3f", "in_position")],
             self.ebo,
         )
 
-        print(f"Renderer initialized: {len(solver.faces)} triangles")
+        print(f"Renderer initialized: {len(self.solver.faces)} triangles")
 
     # ------------------------
     # Draw
@@ -123,17 +124,18 @@ class Renderer:
 
     def draw(
         self,
-        solver: NumpyBreastSolver,
+        solver: UltraStableSolver,
         camera_rot: list[float],
-        camera_pos: list[float],
+        camera_pos: Vector3,
         scale: float,
         stiffness: float,
         pressure: float,
+        current_friction: float,
         fps: float,
     ) -> None:
         self.ctx.clear(0.1, 0.1, 0.15, 1.0)
 
-        world_pos = solver.pos * (scale * 0.01)
+        world_pos = solver.pos * scale
         self.vbo.orphan()
         self.vbo.write(world_pos.astype("f4"))
 
@@ -149,7 +151,7 @@ class Renderer:
 
         self.vao.render()
 
-        self._draw_ui_overlay(scale, stiffness, pressure, fps)
+        self._draw_ui_overlay(scale, stiffness, pressure, current_friction, fps)
         pygame.display.flip()
 
     # ------------------------
@@ -190,6 +192,7 @@ class Renderer:
         scale: float,
         stiffness: float,
         pressure: float,
+        friction: float,
         fps: float,
     ) -> None:
         self.ctx.enable(moderngl.BLEND)
@@ -198,7 +201,8 @@ class Renderer:
         lines = [
             f"FPS: {fps:.1f}",
             f"Stiffness: {stiffness:.3f}",
-            f"Pressure: {pressure:.4f}",
+            f"Pressure: {pressure:.3f}",
+            f"Friction: {friction:.3f}",
         ]
 
         line_h = self.font.get_height()

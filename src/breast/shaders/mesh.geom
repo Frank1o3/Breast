@@ -22,11 +22,6 @@ void main()
     // Face normal (view space)
     vec3 face_normal = normalize(cross(e0, e1));
 
-    // Back-face culling
-    // Camera looks down -Z in view space
-    if (face_normal.z <= 0.0)
-        return;
-
     // Emit triangle with barycentric coords
     for (int i = 0; i < 3; i++)
     {

@@ -4,6 +4,7 @@
     "python-envs.pythonProjects": [],
     "editor.detectIndentation": false,
     "cSpell.words": [
+        "barycentrics",
         "blit",
         "DOUBLEBUF",
         "fastmath",
@@ -15,9 +16,11 @@
         "nbytes",
         "njit",
         "OPENGL",
+        "smoothstep",
         "SRCALPHA",
         "tobytes",
         "verlet",
         "WASD"
-    ]
+    ],
+    "python.analysis.autoImportCompletions": true
 }

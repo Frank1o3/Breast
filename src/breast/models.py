@@ -1,4 +1,7 @@
 # models.py
+from __future__ import annotations
+
+from collections.abc import Iterable
 import math
 
 
@@ -6,20 +9,38 @@ class Vector3:
     __slots__ = ["x", "y", "z"]
 
     def __init__(self, x: float, y: float, z: float) -> None:
-        self.x = x
-        self.y = y
-        self.z = z
+        self.x, self.y, self.z = x, y, z
+
+    def __iter__(self) -> Iterable[float]:
+        yield self.x
+        yield self.y
+        yield self.z
 
     def __add__(self, other: Vector3) -> Vector3:
         return Vector3(self.x + other.x, self.y + other.y, self.z + other.z)
 
+    def __iadd__(self, other: Vector3) -> Vector3:
+        self.x += other.x
+        self.y += other.y
+        self.z += other.z
+        return self
+
     def __sub__(self, other: Vector3) -> Vector3:
         return Vector3(self.x - other.x, self.y - other.y, self.z - other.z)
 
-    def __mul__(self, scalar: int | float) -> Vector3:
+    def __isub__(self, other: Vector3) -> Vector3:
+        self.x -= other.x
+        self.y -= other.y
+        self.z -= other.z
+        return self
+
+    def __mul__(self, scalar: float) -> Vector3:
         return Vector3(self.x * scalar, self.y * scalar, self.z * scalar)
 
-    def __truediv__(self, scalar: int | float) -> Vector3:
+    def __rmul__(self, scalar: float) -> Vector3:  # Handles: scalar * vector
+        return self.__mul__(scalar)
+
+    def __truediv__(self, scalar: float) -> Vector3:
         return Vector3(self.x / scalar, self.y / scalar, self.z / scalar)
 
     def length(self) -> float:
@@ -27,9 +48,14 @@ class Vector3:
 
     def normalize(self) -> Vector3:
         length = self.length()
-        if length == 0:
-            return Vector3(0, 0, 0)
-        return self / length
+        return self / length if length != 0 else Vector3(0, 0, 0)
+
+    def cross(self, other: Vector3) -> Vector3:
+        return Vector3(
+            self.y * other.z - self.z * other.y,
+            self.z * other.x - self.x * other.z,
+            self.x * other.y - self.y * other.x,
+        )
 
 
 class Point:
