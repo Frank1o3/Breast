@@ -5,7 +5,7 @@ Ultra-stable solver with aggressive damping and better initialization.
 
 from typing import Any
 
-from numba import njit  # type: ignore
+from numba import njit, prange  # type: ignore
 import numpy as np
 
 from breast.models import Point, Spring
@@ -16,7 +16,7 @@ from breast.types import FACE, PROJ
 # ===============================
 
 
-@njit(fastmath=True, cache=True)  # type: ignore
+@njit(fastmath=True, cache=True, parallel=True)  # type: ignore
 def integrate_verlet(
     pos: np.ndarray,
     prev_pos: np.ndarray,
@@ -31,7 +31,7 @@ def integrate_verlet(
 ) -> None:
     """Verlet integration with aggressive velocity clamping."""
     dt_sq = dt * dt
-    for i in range(len(pos)):
+    for i in prange(len(pos)):
         if pinned_mask[i]:
             continue
 
@@ -70,7 +70,7 @@ def solve_springs_sequential(
     """
     factor = 0.5 * stiffness
 
-    for i in range(len(spring_i)):
+    for i in prange(len(spring_i)):
         a = spring_i[i]
         b = spring_j[i]
 
@@ -106,7 +106,7 @@ def solve_springs_sequential(
             pos[b, 2] -= off_z
 
 
-@njit(fastmath=True, cache=True)  # type: ignore
+@njit(fastmath=True, cache=True, parallel=True)  # type: ignore
 def apply_pressure_fast(
     pos: np.ndarray,
     faces: FACE,
@@ -117,7 +117,7 @@ def apply_pressure_fast(
     if abs(pressure_val) < 1e-9:
         return
 
-    for i in range(len(faces)):
+    for i in prange(len(faces)):
         i1, i2, i3 = faces[i]
         p1 = pos[i1]
         p2 = pos[i2]
@@ -142,11 +142,11 @@ def apply_pressure_fast(
             pos[i3] += force
 
 
-@njit(fastmath=True, cache=True)  # type: ignore
+@njit(fastmath=True, cache=True, parallel=True)  # type: ignore
 def calculate_volume_fast(pos: np.ndarray, faces: FACE) -> float:
     """Calculate mesh volume."""
     total = 0.0
-    for i in range(len(faces)):
+    for i in prange(len(faces)):
         i1, i2, i3 = faces[i]
         p1 = pos[i1]
         p2 = pos[i2]
