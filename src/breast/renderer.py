@@ -151,7 +151,7 @@ class Renderer:
 
         self.vao.render()
 
-        self._draw_ui_overlay(scale, stiffness, pressure, current_friction, fps)
+        self._draw_ui_overlay(stiffness, pressure, current_friction, fps)
         pygame.display.flip()
 
     # ------------------------
@@ -189,7 +189,6 @@ class Renderer:
 
     def _draw_ui_overlay(
         self,
-        scale: float,
         stiffness: float,
         pressure: float,
         friction: float,
