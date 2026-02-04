@@ -40,32 +40,30 @@ def generate_hemisphere(
     points: list[Point] = []
     springs: list[Spring] = []
     faces: list[list[int]] = []
-
-    # 1. Create TOP POINT (apex/nipple area)
+    # Pre-compute trig values
+    phi_values = [(math.pi / 2) * (r / rings) for r in range(1, rings + 1)]
+    theta_values = [(2 * math.pi * s) / segments for s in range(segments)]
+    
+    cos_phi = [math.cos(phi) for phi in phi_values]
+    sin_phi = [math.sin(phi) for phi in phi_values]
+    cos_theta = [math.cos(theta) for theta in theta_values]
+    sin_theta = [math.sin(theta) for theta in theta_values]
+    
+    # Top point
     top_point = Point(0, 10, radius, pinned=False)
     points.append(top_point)
 
-    # 2. Create RING POINTS (from near-top to bottom)
-    for r in range(1, rings + 1):
-        # Angle from top (0) to equator (pi/2)
-        phi = (math.pi / 2) * (r / rings)
-
-        # Height and radius
-        z_height = radius * math.cos(phi)
-        ring_radius = radius * math.sin(phi)
-
-        for s in range(segments):
-            # Angle around the ring
-            theta = (2 * math.pi * s) / segments
-
-            # Calculate position
-            x = ring_radius * math.cos(theta)
-            y = ring_radius * math.sin(theta)
+    # Ring points using pre-computed values
+    for r_idx, r in enumerate(range(1, rings + 1)):
+        z_height = radius * cos_phi[r_idx]
+        ring_radius = radius * sin_phi[r_idx]
+        
+        for s_idx in range(segments):
+            x = ring_radius * cos_theta[s_idx]
+            y = ring_radius * sin_theta[s_idx]
             z = z_height
-
-            # Pin the bottom ring (chest wall)
+            
             is_pinned = r == rings
-
             points.append(Point(x, y + 10, z, pinned=is_pinned))
 
     # 3. Add CENTER POINT for closing bottom
