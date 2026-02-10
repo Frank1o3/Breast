@@ -199,7 +199,7 @@ class UltraStableSolver:
         # Physics params (VERY conservative for stability)
         self.gravity = np.array([0.0, gravity, 0.0], dtype=np.float32)
         self.ground_y = -0.5
-        self.friction = 0.995  # Very high damping
+        self.friction = 0.98  # Very high damping
 
         # Material properties (very soft)
         self.stiffness = np.float32(0.1)
@@ -251,7 +251,15 @@ class UltraStableSolver:
 
         # Volumetric pressure (very gentle)
         current_vol = calculate_volume_fast(self.pos, self.faces)
-        pressure_val = (self.rest_volume - current_vol) * self.pressure_stiffness
+
+        # Relative, dimensionless volume error
+        vol_error = (self.rest_volume - current_vol) / self.rest_volume
+
+        # Hard clamp to avoid pressure explosions
+        vol_error = np.clip(vol_error, -0.1, 0.1)  # ±10% max correction
+
+        pressure_val = vol_error * self.pressure_stiffness
+
 
         # Many iterations with low stiffness (more stable than few with high stiffness)
         for i in range(10):

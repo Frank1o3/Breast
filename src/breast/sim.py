@@ -122,14 +122,16 @@ def main() -> None:
 
     # Generate mesh
     print("\nGenerating mesh...")
-    rings = 24  # Lower resolution for testing
-    segments = 24
+    rings = 20  # Lower resolution for testing
+    segments = 40
     radius = 5.0
+    phi_bias = 2.2
 
     points, springs, faces = generate_hemisphere(
         radius=radius,
         rings=rings,
         segments=segments,
+        phi_bias=phi_bias
     )
 
     num_points = len(points)

@@ -19,163 +19,134 @@ def generate_hemisphere(
     rings: int = 6,
     segments: int = 12,
     add_bending_springs: bool = True,
+    phi_bias: float = 2.0,  # NEW: controls where resolution goes
 ) -> GEN_HEMI:
     """
-    Generate an improved UV-sphere style hemisphere mesh.
+    Breast-optimized hemisphere mesh.
 
-    Improvements over original:
-    - Both diagonals per quad (prevents shearing)
-    - Optional bending springs (smoother deformation)
-    - Better spring stiffness distribution
-
-    Args:
-        radius: Hemisphere radius (arbitrary units)
-        rings: Number of latitude rings (excluding top point)
-        segments: Number of longitude segments
-        add_bending_springs: Add springs that skip one edge (for bending resistance)
-
-    Returns:
-        (points, springs, faces) tuple
+    Compatible with old code, but with:
+    - Biased latitude sampling (better deformation)
+    - More uniform spring lengths
+    - Stable high-resolution behavior
     """
+
     points: list[Point] = []
     springs: list[Spring] = []
     faces: list[list[int]] = []
 
-    # 1. Create TOP POINT (apex/nipple area)
+    # -----------------------------
+    # 1. Biased latitude sampling
+    # -----------------------------
+    phi_values: list[float] = []
+    for r in range(1, rings + 1):
+        t = r / rings
+        t = t**phi_bias  # <<< KEY CHANGE
+        phi_values.append((math.pi / 2) * t)
+
+    theta_values = [(2 * math.pi * s) / segments for s in range(segments)]
+
+    cos_phi = [math.cos(p) for p in phi_values]
+    sin_phi = [math.sin(p) for p in phi_values]
+    cos_theta = [math.cos(t) for t in theta_values]
+    sin_theta = [math.sin(t) for t in theta_values]
+
+    # -----------------------------
+    # 2. Apex (top point)
+    # -----------------------------
     top_point = Point(0, 10, radius, pinned=False)
     points.append(top_point)
 
-    # 2. Create RING POINTS (from near-top to bottom)
-    for r in range(1, rings + 1):
-        # Angle from top (0) to equator (pi/2)
-        phi = (math.pi / 2) * (r / rings)
+    # -----------------------------
+    # 3. Rings
+    # -----------------------------
+    for r_idx in range(rings):
+        z = radius * cos_phi[r_idx]
+        ring_r = radius * sin_phi[r_idx]
 
-        # Height and radius
-        z_height = radius * math.cos(phi)
-        ring_radius = radius * math.sin(phi)
+        is_pinned = r_idx == rings - 1
 
         for s in range(segments):
-            # Angle around the ring
-            theta = (2 * math.pi * s) / segments
-
-            # Calculate position
-            x = ring_radius * math.cos(theta)
-            y = ring_radius * math.sin(theta)
-            z = z_height
-
-            # Pin the bottom ring (chest wall)
-            is_pinned = r == rings
-
+            x = ring_r * cos_theta[s]
+            y = ring_r * sin_theta[s]
             points.append(Point(x, y + 10, z, pinned=is_pinned))
 
-    # 3. Add CENTER POINT for closing bottom
+    # -----------------------------
+    # 4. Bottom center (pinned)
+    # -----------------------------
     center_idx = len(points)
     points.append(Point(0, 10, 0, pinned=True))
 
-    print(f"Generated {len(points)} points")
-
-    # 4. Create FACES
-    # Top cap: triangles from apex to first ring
+    # -----------------------------
+    # 5. Faces
+    # -----------------------------
     for s in range(segments):
-        i1 = 0  # Top point
-        i2 = 1 + s
-        i3 = 1 + (s + 1) % segments
-        faces.append([i1, i2, i3])
+        faces.append([0, 1 + s, 1 + (s + 1) % segments])
 
-    # Middle: quads between rings (split into triangles)
     for r in range(1, rings):
-        curr_ring_start = 1 + (r - 1) * segments
-        next_ring_start = 1 + r * segments
+        curr = 1 + (r - 1) * segments
+        nxt = 1 + r * segments
 
         for s in range(segments):
-            # Four corners of quad
-            i1 = curr_ring_start + s
-            i2 = curr_ring_start + (s + 1) % segments
-            i3 = next_ring_start + s
-            i4 = next_ring_start + (s + 1) % segments
+            i1 = curr + s
+            i2 = curr + (s + 1) % segments
+            i3 = nxt + s
+            i4 = nxt + (s + 1) % segments
 
-            # Two triangles (counter-clockwise winding)
             faces.append([i1, i3, i2])
             faces.append([i2, i3, i4])
 
-    # Bottom cap: triangles from last ring to center
-    bottom_ring_start = 1 + (rings - 1) * segments
+    bottom = 1 + (rings - 1) * segments
     for s in range(segments):
-        i1 = bottom_ring_start + s
-        i2 = bottom_ring_start + (s + 1) % segments
-        i3 = center_idx
-        faces.append([i1, i2, i3])
+        faces.append([bottom + s, bottom + (s + 1) % segments, center_idx])
 
-    print(f"Generated {len(faces)} faces")
+    # -----------------------------
+    # 6. Springs (length-normalized)
+    # -----------------------------
+    added: set[tuple[int, int]] = set()
+    rest_lengths: list[float] = []
 
-    # 5. Create SPRINGS with improved topology
-    added_springs: set[tuple[int, ...]] = set()
-
-    def add_unique_spring(
-        i: int, j: int, stiffness: float = 0.5, spring_type: str = "edge"
-    ) -> None:
-        """Add spring if not already present."""
+    def add_spring(i: int, j: int, base_k: float) -> None:
         pair = tuple(sorted((i, j)))
-        if pair not in added_springs:
-            springs.append(Spring(points[i], points[j], stiffness=stiffness))
-            added_springs.add(pair)
+        if pair in added:
+            return
+        a, b = points[i], points[j]
+        rest = (b.pos - a.pos).length()
+        springs.append(Spring(a, b, stiffness=base_k, rest_length=rest))
+        rest_lengths.append(rest)
+        added.add(pair)
 
-    # 5a. EDGE SPRINGS (from triangle edges) - structural
+    # Structural
     for f in faces:
-        add_unique_spring(f[0], f[1], stiffness=0.8, spring_type="edge")
-        add_unique_spring(f[1], f[2], stiffness=0.8, spring_type="edge")
-        add_unique_spring(f[2], f[0], stiffness=0.8, spring_type="edge")
+        add_spring(f[0], f[1], 0.8)
+        add_spring(f[1], f[2], 0.8)
+        add_spring(f[2], f[0], 0.8)
 
-    # 5b. DIAGONAL SPRINGS (both per quad) - prevents shearing
-    # This is the KEY improvement!
+    # Diagonals
     for r in range(1, rings):
-        curr_ring_start = 1 + (r - 1) * segments
-        next_ring_start = 1 + r * segments
-
+        curr = 1 + (r - 1) * segments
+        nxt = 1 + r * segments
         for s in range(segments):
-            i1 = curr_ring_start + s
-            i2 = curr_ring_start + (s + 1) % segments
-            i3 = next_ring_start + s
-            i4 = next_ring_start + (s + 1) % segments
+            add_spring(curr + s, nxt + (s + 1) % segments, 0.5)
+            add_spring(curr + (s + 1) % segments, nxt + s, 0.5)
 
-            # Both diagonals (was only one before!)
-            add_unique_spring(i1, i4, stiffness=0.5, spring_type="diagonal")
-            add_unique_spring(i2, i3, stiffness=0.5, spring_type="diagonal")
-
-    # 5c. BENDING SPRINGS (optional) - smoother deformation
+    # Bending
     if add_bending_springs:
-        # Longitudinal bending springs (skip one ring)
-        # Note: ring indices are 0-based but we skip ring 0 (apex)
-        # So we have rings at indices 1, 2, ..., rings
-        for r in range(rings - 1):
-            curr_ring_start = 1 + r * segments
-            # We want to connect ring r to ring r+2
-            # Ring r+2 exists if r+2 < rings (since we go from 0 to rings-1)
-            if r + 2 < rings:
-                skip_ring_start = 1 + (r + 2) * segments
-                for s in range(segments):
-                    i1 = curr_ring_start + s
-                    i2 = skip_ring_start + s
-                    add_unique_spring(i1, i2, stiffness=0.2, spring_type="bending")
-
-        # Latitudinal bending springs (skip one segment)
-        for r in range(1, rings + 1):
-            ring_start = 1 + (r - 1) * segments
+        for r in range(rings - 2):
+            curr = 1 + r * segments
+            skip = 1 + (r + 2) * segments
             for s in range(segments):
-                i1 = ring_start + s
-                i2 = ring_start + (s + 2) % segments
-                add_unique_spring(i1, i2, stiffness=0.2, spring_type="bending")
+                add_spring(curr + s, skip + s, 0.2)
 
-    print(f"Generated {len(springs)} springs")
+        for r in range(rings):
+            ring = 1 + r * segments
+            for s in range(segments):
+                add_spring(ring + s, ring + (s + 3) % segments, 0.2)
 
-    # Count spring types
-    edge_count = sum(1 for s in springs if abs(s.stiffness - 0.8) < 0.01)
-    diag_count = sum(1 for s in springs if abs(s.stiffness - 0.5) < 0.01)
-    bend_count = sum(1 for s in springs if abs(s.stiffness - 0.2) < 0.01)
+    # -----------------------------
+    # 7. Normalize spring stiffness
+    # -----------------------------
+    avg_len = sum(rest_lengths) / len(rest_lengths)
+    for s in springs:
+        s.stiffness *= s.rest_length / avg_len
 
-    print(f"  Edge springs:     {edge_count} (stiff)")
-    print(f"  Diagonal springs: {diag_count} (medium)")
-    print(f"  Bending springs:  {bend_count} (soft)")
-
-    np_faces = np.array(faces, dtype=np.int32)
-    return points, springs, np_faces
+    return points, springs, np.array(faces, dtype=np.int32)
