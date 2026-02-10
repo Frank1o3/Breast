@@ -59,6 +59,8 @@ class Vector3:
 
 
 class Point:
+    __slots__ = ['pos', 'prev_pos', 'pinned', 'mass']
+
     def __init__(self, x: float, y: float, z: float, pinned: bool = False) -> None:
         self.pos = Vector3(x, y, z)
         self.prev_pos = Vector3(x, y, z)
@@ -67,6 +69,8 @@ class Point:
 
 
 class Spring:
+    __slots__ = ['a', 'b', 'stiffness', 'rest_length']
+    
     def __init__(
         self,
         a: Point,

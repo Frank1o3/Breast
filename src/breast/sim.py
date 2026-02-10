@@ -229,43 +229,52 @@ def main() -> None:
         right = Vector3(np.cos(yaw), 0.0, np.sin(yaw))
 
         # 5. Directional Movement (Fly-cam)
-        keys = pygame.key.get_pressed()
         camera_speed = 0.002  # Adjusted for your 0.1m scale
 
         if keys[pygame.K_w]:
             camera_pos -= forward * camera_speed
-        if keys[pygame.K_s]:
+        elif keys[pygame.K_s]:
             camera_pos += forward * camera_speed
+
         if keys[pygame.K_a]:
             camera_pos -= right * camera_speed
-        if keys[pygame.K_d]:
+        elif keys[pygame.K_d]:
             camera_pos += right * camera_speed
 
         # Vertical movement (World-space)
         if keys[pygame.K_q]:
             camera_pos.y -= camera_speed
-        if keys[pygame.K_e]:
+        elif keys[pygame.K_e]:
             camera_pos.y += camera_speed
 
+        param_changed: bool = False
         # Physics parameters
         if keys[pygame.K_z]:
             current_stiffness = current_stiffness - 0.001
-            command_queue.put({"type": "set_stiffness", "value": current_stiffness})
-        if keys[pygame.K_x]:
+            param_changed = True
+        elif keys[pygame.K_x]:
             current_stiffness = current_stiffness + 0.001
-            command_queue.put({"type": "set_stiffness", "value": current_stiffness})
+            param_changed = True
+
         if keys[pygame.K_c]:
             current_pressure = current_pressure - 0.001
-            command_queue.put({"type": "set_pressure", "value": current_pressure})
-        if keys[pygame.K_v]:
+            param_changed = True
+        elif keys[pygame.K_v]:
             current_pressure = current_pressure + 0.001
-            command_queue.put({"type": "set_pressure", "value": current_pressure})
+            param_changed = True
+
         if keys[pygame.K_n]:
             current_friction = current_friction - 0.001
-            command_queue.put({"type": "set_friction", "value": current_friction})
-        if keys[pygame.K_m]:
+            param_changed = True
+        elif keys[pygame.K_m]:
             current_friction = current_friction + 0.001
+            param_changed = True
+
+        if param_changed:
+            command_queue.put({"type": "set_stiffness", "value": current_stiffness})
+            command_queue.put({"type": "set_pressure", "value": current_pressure})
             command_queue.put({"type": "set_friction", "value": current_friction})
+            param_changed = False
 
         # Read positions (already in meters!)
         render_solver.pos[:] = shared_buf

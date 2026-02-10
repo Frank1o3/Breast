@@ -53,6 +53,16 @@ def generate_hemisphere(
     # -----------------------------
     # 2. Apex (top point)
     # -----------------------------
+    # Pre-compute trig values
+    phi_values = [(math.pi / 2) * (r / rings) for r in range(1, rings + 1)]
+    theta_values = [(2 * math.pi * s) / segments for s in range(segments)]
+    
+    cos_phi = [math.cos(phi) for phi in phi_values]
+    sin_phi = [math.sin(phi) for phi in phi_values]
+    cos_theta = [math.cos(theta) for theta in theta_values]
+    sin_theta = [math.sin(theta) for theta in theta_values]
+    
+    # Top point
     top_point = Point(0, 10, radius, pinned=False)
     points.append(top_point)
 
@@ -68,6 +78,17 @@ def generate_hemisphere(
         for s in range(segments):
             x = ring_r * cos_theta[s]
             y = ring_r * sin_theta[s]
+    # Ring points using pre-computed values
+    for r_idx, r in enumerate(range(1, rings + 1)):
+        z_height = radius * cos_phi[r_idx]
+        ring_radius = radius * sin_phi[r_idx]
+        
+        for s_idx in range(segments):
+            x = ring_radius * cos_theta[s_idx]
+            y = ring_radius * sin_theta[s_idx]
+            z = z_height
+            
+            is_pinned = r == rings
             points.append(Point(x, y + 10, z, pinned=is_pinned))
 
     # -----------------------------

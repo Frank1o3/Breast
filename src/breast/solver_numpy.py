@@ -145,14 +145,15 @@ def apply_pressure_fast(
 @njit(fastmath=True, cache=True, parallel=True)  # type: ignore
 def calculate_volume_fast(pos: np.ndarray, faces: FACE) -> float:
     """Calculate mesh volume."""
-    total = 0.0
-    for i in prange(len(faces)):
+    n = len(faces)
+    partial_sums = np.zeros(n, dtype=np.float64)
+    for i in prange(n):
         i1, i2, i3 = faces[i]
         p1 = pos[i1]
         p2 = pos[i2]
         p3 = pos[i3]
-        total += np.dot(p1, np.cross(p2, p3))
-    return abs(total) / 6.0
+        partial_sums[i] = np.dot(p1, np.cross(p2, p3))
+    return abs(np.sum(partial_sums)) / 6.0
 
 
 # ===============================
@@ -198,6 +199,8 @@ class UltraStableSolver:
 
         # Physics params (VERY conservative for stability)
         self.gravity = np.array([0.0, gravity, 0.0], dtype=np.float32)
+        self.temp_pos = np.empty_like(self.pos)
+        self.displacement = np.empty(len(self.pos), dtype=np.float32)
         self.ground_y = -0.5
         self.friction = 0.98  # Very high damping
 
@@ -233,7 +236,7 @@ class UltraStableSolver:
         max_vel = max_disp / dt
 
         # Store old positions for diagnostics
-        old_pos = self.pos.copy()
+        np.copyto(self.temp_pos, self.pos)
 
         # Integration
         integrate_verlet(
@@ -279,7 +282,8 @@ class UltraStableSolver:
             self.pos[self.pinned_mask] = self.pinned_pos
 
         # Diagnostics
-        displacement = np.max(np.abs(self.pos - old_pos))
+        np.subtract(self.pos, self.temp_pos, out=self.displacement)
+        displacement = np.max(np.abs(self.displacement))
         velocity = displacement / dt
 
         self.max_displacement = max(self.max_displacement, displacement)
