@@ -36,7 +36,7 @@ MESH_TO_METERS = 0.1  # 5 units * 0.01 = 0.05m radius (5cm)
 
 # Physics (very conservative)
 PHYSICS_FPS = 120
-SUB_STEPS = 15  # Many small steps = more stable
+SUB_STEPS = 5  # Many small steps = more stable
 
 # ===============================
 # PHYSICS WORKER

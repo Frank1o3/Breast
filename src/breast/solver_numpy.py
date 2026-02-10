@@ -16,7 +16,7 @@ from breast.types import FACE, PROJ
 # ===============================
 
 
-@njit(fastmath=True, cache=True)  # type: ignore
+@njit(fastmath=True, cache=True, parallel= True)  # type: ignore
 def integrate_verlet(
     pos: np.ndarray,
     prev_pos: np.ndarray,
@@ -31,7 +31,7 @@ def integrate_verlet(
 ) -> None:
     """Verlet integration with aggressive velocity clamping."""
     dt_sq = dt * dt
-    for i in range(len(pos)):
+    for i in prange(len(pos)):
         if pinned_mask[i]:
             continue
 
@@ -56,9 +56,33 @@ def integrate_verlet(
             prev_pos[i, 1] = y_floor
 
 
-@njit(fastmath=True, cache=True)  # type: ignore
-def solve_springs_sequential(
+def color_springs(
+    spring_i: np.typing.NDArray[np.int32],
+    spring_j: np.typing.NDArray[np.int32],
+    num_points: int,
+) -> list[np.typing.NDArray[np.int32]]:
+    """Returns list of arrays, each array is indices of non-conflicting springs."""
+    colors = np.full(len(spring_i), -1, dtype=np.int32)
+    neighbor_colors: list[set[int]] = [set() for _ in range(num_points)]
+
+    for s in range(len(spring_i)):
+        a, b = spring_i[s], spring_j[s]
+        used = neighbor_colors[a] | neighbor_colors[b]
+        c = 0
+        while c in used:
+            c += 1
+        colors[s] = c
+        neighbor_colors[a].add(c)
+        neighbor_colors[b].add(c)
+
+    num_colors = int(colors.max()) + 1
+    return [np.where(colors == c)[0].astype(np.int32) for c in range(num_colors)]
+
+
+@njit(fastmath=True, cache=True, parallel=True)  # type: ignore
+def solve_springs_group(
     pos: np.ndarray,
+    group: np.typing.NDArray[np.int32],   # indices INTO spring_i/spring_j for this color
     spring_i: np.typing.NDArray[np.int32],
     spring_j: np.typing.NDArray[np.int32],
     rest_lengths: PROJ,
@@ -66,30 +90,30 @@ def solve_springs_sequential(
     pinned_mask: np.ndarray,
 ) -> None:
     """
-    Sequential spring solving (more stable than parallel for stiff systems).
+    Parallel spring solving for a single color group.
+    Springs within a group are guaranteed to share no vertices,
+    so prange is safe — no write conflicts.
     """
-    factor = 0.5 * stiffness
+    factor = np.float32(0.5) * stiffness
 
-    for i in range(len(spring_i)):
-        a = spring_i[i]
-        b = spring_j[i]
+    for k in prange(len(group)):
+        s = group[k]          # actual spring index
+        a = spring_i[s]
+        b = spring_j[s]
 
         if pinned_mask[a] and pinned_mask[b]:
             continue
 
-        p1 = pos[a]
-        p2 = pos[b]
-
-        dx = p2[0] - p1[0]
-        dy = p2[1] - p1[1]
-        dz = p2[2] - p1[2]
+        dx = pos[b, 0] - pos[a, 0]
+        dy = pos[b, 1] - pos[a, 1]
+        dz = pos[b, 2] - pos[a, 2]
 
         dist_sq = dx * dx + dy * dy + dz * dz
         if dist_sq < 1e-8:
             continue
 
         dist = np.sqrt(dist_sq)
-        diff = (dist - rest_lengths[i]) / dist
+        diff = (dist - rest_lengths[s]) / dist
 
         off_x = dx * diff * factor
         off_y = dy * diff * factor
@@ -142,16 +166,23 @@ def apply_pressure_fast(
             pos[i3] += force
 
 
-@njit(fastmath=True, cache=True)  # type: ignore
+@njit(fastmath=True, cache=True, parallel=True)  # type: ignore
 def calculate_volume_fast(pos: np.ndarray, faces: FACE) -> float:
-    """Calculate mesh volume."""
+    """Calculate mesh volume in parallel.
+
+    Each face contribution is independent (read-only on pos), so prange
+    is safe. Numba reduces the per-thread partial sums automatically when
+    you accumulate into a scalar inside prange.
+    """
     total = 0.0
-    for i in range(len(faces)):
+    for i in prange(len(faces)):
         i1, i2, i3 = faces[i]
         p1 = pos[i1]
         p2 = pos[i2]
         p3 = pos[i3]
-        total += np.dot(p1, np.cross(p2, p3))
+        total += p1[0] * (p2[1] * p3[2] - p2[2] * p3[1]) \
+               + p1[1] * (p2[2] * p3[0] - p2[0] * p3[2]) \
+               + p1[2] * (p2[0] * p3[1] - p2[1] * p3[0])
     return abs(total) / 6.0
 
 
@@ -194,6 +225,7 @@ class UltraStableSolver:
         p_to_idx = {id(p): i for i, p in enumerate(points)}
         self.spring_i = np.array([p_to_idx[id(s.a)] for s in springs], dtype=np.int32)
         self.spring_j = np.array([p_to_idx[id(s.b)] for s in springs], dtype=np.int32)
+        self.spring_color_groups = color_springs(self.spring_i, self.spring_j, len(points))
         self.rest_lengths = np.array([s.rest_length * scale for s in springs], dtype=np.float32)
 
         # Physics params (VERY conservative for stability)
@@ -213,6 +245,7 @@ class UltraStableSolver:
         self.max_velocity = 0.0
         self.max_displacement = 0.0
         self.steps_stable = 0
+        
 
         print("Solver initialized:")
         print(f"  - {len(points)} points")
@@ -261,21 +294,25 @@ class UltraStableSolver:
         pressure_val = vol_error * self.pressure_stiffness
 
 
-        # Many iterations with low stiffness (more stable than few with high stiffness)
-        for i in range(10):
-            solve_springs_sequential(
-                self.pos,
-                self.spring_i,
-                self.spring_j,
-                self.rest_lengths,
-                self.stiffness,
-                self.pinned_mask,
-            )
+        # Spring solving — iterate over color groups.
+        # Within each group, springs share no vertices → safe to prange.
+        # Groups must be solved sequentially w.r.t. each other (data dependency).
+        for iteration in range(5):
+            for group in self.spring_color_groups:
+                solve_springs_group(
+                    self.pos,
+                    group,
+                    self.spring_i,
+                    self.spring_j,
+                    self.rest_lengths,
+                    self.stiffness,
+                    self.pinned_mask,
+                )
 
-            if i % 3 == 0:
+            if iteration % 3 == 0:
                 apply_pressure_fast(self.pos, self.faces, pressure_val, self.pinned_mask)
 
-            # Enforce pinned constraints
+            # Enforce pinned constraints after each full iteration
             self.pos[self.pinned_mask] = self.pinned_pos
 
         # Diagnostics
