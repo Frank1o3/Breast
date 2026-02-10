@@ -118,7 +118,6 @@ class Renderer:
         )
         cached_aspect = self.width / self.height
         self.cached_proj = perspective(np.radians(60.0), cached_aspect, 0.1, 100.0)
-        self.last_ui_values: tuple[float, float, float, float] | None = None
         self.ui_texture_cache: moderngl.Texture | None = None
 
         print(f"Renderer initialized: {len(self.solver.faces)} triangles")
@@ -191,75 +190,63 @@ class Renderer:
         friction: float,
         fps: float,
     ) -> None:
-        current_values = (
-            round(fps, 1),
-            round(stiffness, 3),
-            round(pressure, 3),
-            round(friction, 3),
+        lines = [
+            f"FPS: {fps:.1f}",
+            f"Stiffness: {stiffness:.3f}",
+            f"Pressure: {pressure:.3f}",
+            f"Friction: {friction:.3f}",
+        ]
+
+        line_h = self.font.get_height()
+        w = max(self.font.size(line)[0] for line in lines)
+        h = line_h * len(lines)
+
+        surface = pygame.Surface((w, h), pygame.SRCALPHA)
+
+        y = 0
+        for line in lines:
+            surface.blit(self.font.render(line, True, (220, 220, 220)), (0, y))
+            y += line_h
+
+        if self.ui_texture:
+            self.ui_texture.release()
+        self.ui_texture = self._surface_to_texture(surface)
+        self.ui_texture.use(0)
+
+        # --- Compute top-left quad ---
+        margin = 10
+        ndc_w = 2.0 * w / self.width
+        ndc_h = 2.0 * h / self.height
+        mx = 2.0 * margin / self.width
+        my = 2.0 * margin / self.height
+
+        x0 = -1.0 + mx
+        y0 = 1.0 - my
+        x1 = x0 + ndc_w
+        y1 = y0 - ndc_h
+
+        quad = np.array(
+            [
+                x0,
+                y0,
+                0.0,
+                1.0,
+                x0,
+                y1,
+                0.0,
+                0.0,
+                x1,
+                y0,
+                1.0,
+                1.0,
+                x1,
+                y1,
+                1.0,
+                0.0,
+            ],
+            dtype="f4",
         )
 
-        if current_values != self.last_ui_values:
-            self.ctx.enable(moderngl.BLEND)
-            self.ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
-
-            lines = [
-                f"FPS: {fps:.1f}",
-                f"Stiffness: {stiffness:.3f}",
-                f"Pressure: {pressure:.3f}",
-                f"Friction: {friction:.3f}",
-            ]
-
-            line_h = self.font.get_height()
-            w = max(self.font.size(line)[0] for line in lines)
-            h = line_h * len(lines)
-
-            surface = pygame.Surface((w, h), pygame.SRCALPHA)
-
-            y = 0
-            for line in lines:
-                surface.blit(self.font.render(line, True, (220, 220, 220)), (0, y))
-                y += line_h
-
-            if self.ui_texture:
-                self.ui_texture.release()
-            self.ui_texture = self._surface_to_texture(surface)
-            self.last_ui_values = current_values
-            self.ui_texture.use(0)
-
-            # --- Compute top-left quad ---
-            margin = 10
-            ndc_w = 2.0 * w / self.width
-            ndc_h = 2.0 * h / self.height
-            mx = 2.0 * margin / self.width
-            my = 2.0 * margin / self.height
-
-            x0 = -1.0 + mx
-            y0 = 1.0 - my
-            x1 = x0 + ndc_w
-            y1 = y0 - ndc_h
-
-            quad = np.array(
-                [
-                    x0,
-                    y0,
-                    0.0,
-                    1.0,
-                    x0,
-                    y1,
-                    0.0,
-                    0.0,
-                    x1,
-                    y0,
-                    1.0,
-                    1.0,
-                    x1,
-                    y1,
-                    1.0,
-                    0.0,
-                ],
-                dtype="f4",
-            )
-
-            self.ui_vbo.write(quad.tobytes())
-            self.ui_prog["u_texture"] = 0
-            self.ui_vao.render(mode=moderngl.TRIANGLE_STRIP)
+        self.ui_vbo.write(quad.tobytes())
+        self.ui_prog["u_texture"] = 0
+        self.ui_vao.render(mode=moderngl.TRIANGLE_STRIP)
