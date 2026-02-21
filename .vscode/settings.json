@@ -24,5 +24,6 @@
         "verlet",
         "WASD"
     ],
-    "python.analysis.autoImportCompletions": true
+    "python.analysis.autoImportCompletions": true,
+    "makefile.makefilePath": "${workspaceFolder}/Makefile"
 }

@@ -21,7 +21,7 @@ import moderngl
 import numpy as np
 import pygame
 
-from breast.mesh.hemisphere import generate_hemisphere
+from breast.hemisphere import generate_hemisphere
 from breast.models import Point, Spring, Vector3
 from breast.renderer import Renderer
 from breast.solver_numpy import UltraStableSolver
@@ -128,10 +128,7 @@ def main() -> None:
     phi_bias = 2.2
 
     points, springs, faces = generate_hemisphere(
-        radius=radius,
-        rings=rings,
-        segments=segments,
-        phi_bias=phi_bias
+        radius=radius, rings=rings, segments=segments, phi_bias=phi_bias
     )
 
     num_points = len(points)
