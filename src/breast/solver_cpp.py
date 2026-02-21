@@ -11,8 +11,6 @@ If _engine is not built yet, imports solver_numpy transparently and warns.
 """
 
 from __future__ import annotations
-
-from traceback import print_tb
 import warnings
 
 import numpy as np
@@ -26,7 +24,7 @@ from breast.types import FACE
 try:
     import breast._engine as _lib  # type: ignore
 
-    _BACKEND = "cpp"
+    _backend = "cpp"
 except ImportError:
     warnings.warn(
         "\n[solver_cpp] C++ extension '_engine' not found — "
@@ -37,14 +35,14 @@ except ImportError:
         ImportWarning,
         stacklevel=2,
     )
-    from breast.solver_numpy import UltraStableSolver  # noqa: F401 (re-export)
+    from breast.solver_numpy import UltraStableSolver
 
-    _BACKEND = "numpy"
+    _backend = "numpy"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # C++ wrapper
 # ─────────────────────────────────────────────────────────────────────────────
-if _BACKEND == "cpp":
+if _backend == "cpp":
 
     class UltraStableSolver:
         """
