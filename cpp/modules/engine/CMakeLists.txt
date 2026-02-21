@@ -25,10 +25,10 @@ target_include_directories(engine
 )
 
 # Apply shared compile flags
-breast_compile_options(engine)
+softsim_compile_options(engine)
 
 # OpenMP — engine uses #pragma omp in hot loops
-breast_enable_openmp(engine)
+softsim_enable_openmp(engine)
 
 # ── Module-local dependencies ─────────────────────────────────────────────────
 # Add find_package() calls here for deps that ONLY engine needs.

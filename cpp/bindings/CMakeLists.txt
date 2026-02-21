@@ -1,6 +1,6 @@
 # bindings/CMakeLists.txt
 # ─────────────────────────────────────────────────────────────────────────────
-# Each pybind11 extension is declared with breast_binding(name sources... deps...)
+# Each pybind11 extension is declared with softsim_binding(name sources... deps...)
 # The macro:
 #   1. Calls pybind11_add_module()
 #   2. Applies shared compile flags
@@ -10,12 +10,12 @@
 
 # ── Helper macro ──────────────────────────────────────────────────────────────
 # Usage:
-#   breast_binding(
+#   softsim_binding(
 #       NAME    _engine
 #       SOURCES bind_engine.cpp
 #       LINKS   engine          # shared libs to link
 #   )
-macro(breast_binding)
+macro(softsim_binding)
     cmake_parse_arguments(_B "" "NAME" "SOURCES;LINKS" ${ARGN})
 
     pybind11_add_module(${_B_NAME} ${_B_SOURCES})
@@ -25,24 +25,24 @@ macro(breast_binding)
         "${CMAKE_CURRENT_SOURCE_DIR}"
     )
 
-    breast_compile_options(${_B_NAME})
+    softsim_compile_options(${_B_NAME})
 
-    # Link the requested breast module shared libs
+    # Link the requested softsim module shared libs
     foreach(_lib ${_B_LINKS})
         target_link_libraries(${_B_NAME} PRIVATE ${_lib})
     endforeach()
 
     # Copy to Python package after build
-    breast_install_to_pkg(${_B_NAME})
+    softsim_install_to_pkg(${_B_NAME})
 
     message(STATUS "[binding] ${_B_NAME} → links: ${_B_LINKS}")
 endmacro()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Bindings — add one breast_binding() call per extension module
+# Bindings — add one softsim_binding() call per extension module
 # ─────────────────────────────────────────────────────────────────────────────
 
-breast_binding(
+softsim_binding(
     NAME    _engine
     SOURCES bind_engine.cpp
     LINKS   engine
@@ -50,13 +50,13 @@ breast_binding(
 
 # Future bindings:
 #
-# breast_binding(
+# softsim_binding(
 #     NAME    _collision
 #     SOURCES bind_collision.cpp
 #     LINKS   collision engine   # collision depends on engine — both linked here
 # )
 #
-# breast_binding(
+# softsim_binding(
 #     NAME    _rendering
 #     SOURCES bind_rendering.cpp
 #     LINKS   rendering

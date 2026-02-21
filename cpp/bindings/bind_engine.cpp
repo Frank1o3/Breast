@@ -1,6 +1,6 @@
 // bindings/bind_engine.cpp
 // ─────────────────────────────────────────────────────────────────────────────
-// pybind11 bindings for breast::engine.
+// pybind11 bindings for softsim::engine.
 //
 // This file is intentionally thin — no physics logic lives here.
 // All logic is in libengine (modules/engine/src/).
@@ -66,7 +66,7 @@ parse_faces(py::array_t<int32_t, py::array::c_style> arr) {
 // Module
 // ─────────────────────────────────────────────────────────────────────────────
 PYBIND11_MODULE(_engine, m) {
-    m.doc() = "breast engine — soft-body physics (C++ / OpenMP)";
+    m.doc() = "softsim engine — soft-body physics (C++ / OpenMP)";
 
     // ── PointInit ─────────────────────────────────────────────────────────────
     py::class_<PointInit>(m, "PointInit")

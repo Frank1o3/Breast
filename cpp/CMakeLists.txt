@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(breast_ext LANGUAGES CXX)
+project(softsim_ext LANGUAGES CXX)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # C++ standard (all sub-projects inherit this)

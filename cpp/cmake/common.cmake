@@ -1,11 +1,11 @@
 # cmake/common.cmake
 # ─────────────────────────────────────────────────────────────────────────────
-# Shared compile flags applied to every target via breast_compile_options().
+# Shared compile flags applied to every target via softsim_compile_options().
 # Shared libs and pybind11 extension modules both call this.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Optimisation / warning flags ─────────────────────────────────────────────
-function(breast_compile_options target)
+function(softsim_compile_options target)
     target_compile_options(${target} PRIVATE
         # GCC / Clang
         $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:
@@ -30,19 +30,19 @@ function(breast_compile_options target)
 endfunction()
 
 # ── OpenMP helper ─────────────────────────────────────────────────────────────
-# Call breast_enable_openmp(target) on any target that uses #pragma omp.
-function(breast_enable_openmp target)
+# Call softsim_enable_openmp(target) on any target that uses #pragma omp.
+function(softsim_enable_openmp target)
     if(OpenMP_CXX_FOUND)
         target_link_libraries(${target} PRIVATE OpenMP::OpenMP_CXX)
-        target_compile_definitions(${target} PRIVATE breast_OPENMP=1)
+        target_compile_definitions(${target} PRIVATE SOFTSIM_OPENMP=1)
     endif()
 endfunction()
 
 # ── Copy-to-package helper ────────────────────────────────────────────────────
-# breast_install_to_pkg(target)
+# softsim_install_to_pkg(target)
 #   After build, copies the compiled .so / .pyd into ${BREAST_PKG_DIR}.
 #   Used by every pybind11 extension target in bindings/CMakeLists.txt.
-function(breast_install_to_pkg target)
+function(softsim_install_to_pkg target)
     add_custom_command(TARGET ${target} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "$<TARGET_FILE:${target}>"

@@ -89,7 +89,7 @@ fi
 PB11_VER="$("$PYTHON" -c 'import pybind11; print(pybind11.__version__)' 2>/dev/null || true)"
 
 echo "=================================================="
-echo "  breast C++ build  (${BUILD_TYPE})"
+echo "  softsim C++ build  (${BUILD_TYPE})"
 echo "=================================================="
 echo "Python:    $PYTHON  ($(${PYTHON} --version 2>&1))"
 
