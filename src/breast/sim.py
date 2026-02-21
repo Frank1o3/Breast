@@ -1,13 +1,5 @@
-# sim_emergency_fix.py
 """
-EMERGENCY STABILITY FIX
-
-Changes from your current sim:
-1. NO double scaling (this was making mesh invisible!)
-2. Ultra-conservative physics parameters
-3. Proper initialization (prev_pos = pos)
-4. Sequential solving (more stable)
-5. Better diagnostics
+Soft Body Sim
 """
 
 import ctypes
@@ -25,19 +17,22 @@ import pygame
 from breast.hemisphere import generate_hemisphere
 from breast.models import Point, Spring, Vector3
 from breast.renderer import Renderer
-from breast.solver_numpy import UltraStableSolver
+from breast.solver_cpp import UltraStableSolver
 from breast.types import FACE
 
 # ===============================
 # CONSTANTS
 # ===============================
 
-# CRITICAL: This is the ONLY place scale is applied
-MESH_TO_METERS = 0.1  # 5 units * 0.01 = 0.05m radius (5cm)
+MESH_TO_METERS = 0.1
 
-# Physics (very conservative)
-PHYSICS_FPS = 60
-SUB_STEPS = 5  # Many small steps = more stable
+PHYSICS_FPS = 120
+SUB_STEPS   = 5
+
+# How fast parameters interpolate toward their target value (units/second).
+# Smaller  = slower/safer ramp.  Larger = snappier but riskier on big jumps.
+STIFFNESS_RATE = 2.5   # stiffness units per second
+PRESSURE_RATE  = 2.5   # pressure  units per second
 
 # ===============================
 # PHYSICS WORKER
@@ -52,55 +47,100 @@ def physics_worker(
     springs: list[Spring],
     faces: FACE,
 ) -> None:
-    """Single physics worker - no race conditions."""
+    """Physics worker — ramps parameters gradually to avoid explosions."""
     print(f"[Physics Worker {os.getpid()}] Starting")
 
-    solver = UltraStableSolver(
-        points,
-        springs,
-        faces,
-        gravity=-9.8,
-        scale=MESH_TO_METERS,
-    )
+    def make_solver() -> UltraStableSolver:
+        return UltraStableSolver(
+            points, springs, faces,
+            gravity=-9.8,
+            scale=MESH_TO_METERS,
+        )
 
-    dt = 1.0 / PHYSICS_FPS
-    sub_dt = dt / SUB_STEPS
+    solver = make_solver()
+
+    dt      = 1.0 / PHYSICS_FPS
+    sub_dt  = dt / SUB_STEPS
     running = True
+
+    # ── Parameter ramp state ──────────────────────────────────────────────────
+    # current_* is what the solver actually sees right now.
+    # target_*  is where the user wants to end up.
+    # On reset the solver resets to defaults, so current must also reset.
+    current_stiffness = solver.stiffness
+    current_pressure  = solver.pressure_stiffness
+    target_stiffness  = current_stiffness
+    target_pressure   = current_pressure
+
+
     last_time = time.perf_counter()
 
-    shared_buf = np.frombuffer(shared_positions.get_obj(), dtype=np.float32).reshape(
-        (num_points, 3)
-    )
+    shared_buf = np.frombuffer(
+        shared_positions.get_obj(), dtype=np.float32
+    ).reshape((num_points, 3))
 
     while running:
-        # Commands
+        # ── Commands ─────────────────────────────────────────────────────────
         while not command_queue.empty():
             cmd = command_queue.get()
 
             if cmd["type"] == "quit":
                 running = False
                 break
-            elif cmd["type"] == "reset":
-                solver = UltraStableSolver(points, springs, faces, scale=MESH_TO_METERS)
-            elif cmd["type"] == "set_stiffness":
-                solver.stiffness = np.float32(cmd["value"])
-            elif cmd["type"] == "set_pressure":
-                solver.pressure_stiffness = np.float32(cmd["value"])
 
-        # Physics substeps
+            elif cmd["type"] == "reset":
+                solver = make_solver()
+                # Reset current to solver defaults so the ramp starts from a
+                # safe known state rather than wherever we were before.
+                current_stiffness = solver.stiffness
+                current_pressure  = solver.pressure_stiffness
+                # Keep targets — user wants those values eventually.
+                # The ramp will re-approach them safely from the defaults.
+
+            elif cmd["type"] == "set_stiffness":
+                target_stiffness = float(cmd["value"])
+
+            elif cmd["type"] == "set_pressure":
+                target_pressure = float(cmd["value"])
+
+        if not running:
+            break
+
+        # ── Ramp current → target ─────────────────────────────────────────────
+        # Move current values toward targets at a fixed rate per second,
+        # scaled by the real elapsed dt to stay frame-rate independent.
+        real_dt = time.perf_counter() - last_time   # may be slightly off; use dt as fallback
+        ramp_dt = min(real_dt, dt * 2)               # clamp runaway spikes
+
+        def ramp(current: float, target: float, rate: float) -> float:
+            delta = target - current
+            step  = rate * ramp_dt
+            if abs(delta) <= step:
+                return target
+            return current + math.copysign(step, delta)
+
+        current_stiffness = ramp(current_stiffness, target_stiffness, STIFFNESS_RATE)
+        current_pressure  = ramp(current_pressure,  target_pressure,  PRESSURE_RATE)
+
+        solver.stiffness          = current_stiffness
+        solver.pressure_stiffness = current_pressure
+
+        # ── Physics substeps ──────────────────────────────────────────────────
         for _ in range(SUB_STEPS):
             solver.update(sub_dt)
 
-        # Reset on explosion
+        # ── Explosion guard ───────────────────────────────────────────────────
         if solver.is_exploded:
-            print(f"[Physics Worker {os.getpid()}] Explosion - resetting")
-            solver = UltraStableSolver(points, springs, faces, scale=MESH_TO_METERS)
+            print(f"[Physics Worker {os.getpid()}] Explosion — resetting")
+            solver            = make_solver()
+            current_stiffness = solver.stiffness
+            current_pressure  = solver.pressure_stiffness
 
-        # Write positions (already in meters!)
+        # ── Write positions ───────────────────────────────────────────────────
         shared_buf[:] = solver.pos
 
-        # Rate limiting
-        elapsed = time.perf_counter() - last_time
+        # ── Rate limiting ─────────────────────────────────────────────────────
+        elapsed    = time.perf_counter() - last_time
         sleep_time = dt - elapsed
         if sleep_time > 0:
             time.sleep(sleep_time)
@@ -116,47 +156,39 @@ def physics_worker(
 
 def main() -> None:
     print("=" * 60)
-    print("EMERGENCY STABILITY FIX")
+    print("Soft Body Sim")
     print("=" * 60)
 
-    # Generate mesh
     print("\nGenerating mesh...")
-    rings = 40   # Lower resolution for testing
-    segments = 40
-    radius = 5.0
-    phi_bias = 2.1
+    first_ran = False
+    rings    = 40
+    segments = 50
+    radius   = 4.5
+    phi_bias = 1.4
 
     points, springs, faces = generate_hemisphere(
-        radius=radius, rings=rings, segments=segments, phi_bias=phi_bias, rot_x=math.radians(-75)
+        radius=radius, rings=rings, segments=segments,
+        phi_bias=phi_bias, rot_x=math.radians(-75),
     )
 
     num_points = len(points)
     print(f"Mesh: {num_points} points, {len(springs)} springs, {len(faces)} faces")
-    print(f"Scale: {MESH_TO_METERS}m/unit = {radius * MESH_TO_METERS}m radius")
 
     # Shared memory
     shared_positions = Array(ctypes.c_float, num_points * 3, lock=True)
-    shared_buf = np.frombuffer(shared_positions.get_obj(), dtype=np.float32).reshape(
-        (num_points, 3)
-    )
+    shared_buf = np.frombuffer(
+        shared_positions.get_obj(), dtype=np.float32
+    ).reshape((num_points, 3))
 
-    # Initial positions (in meters)
     initial_pos = np.array(
-        [
-            [
-                p.pos.x * MESH_TO_METERS,
-                p.pos.y * MESH_TO_METERS,
-                p.pos.z * MESH_TO_METERS,
-            ]
-            for p in points
-        ],
+        [[p.pos.x * MESH_TO_METERS, p.pos.y * MESH_TO_METERS, p.pos.z * MESH_TO_METERS]
+        for p in points],
         dtype=np.float32,
     )
     shared_buf[:] = initial_pos
 
     command_queue: Queue[dict[str, str | float]] = Queue()
 
-    # Physics worker
     print(f"\nStarting physics worker ({PHYSICS_FPS} FPS, {SUB_STEPS} substeps)...")
     physics_process = Process(
         target=physics_worker,
@@ -165,34 +197,33 @@ def main() -> None:
     )
     physics_process.start()
 
-    # Rendering
+    # ── Renderer ──────────────────────────────────────────────────────────────
     print("Initializing renderer...")
     pygame.init()
     width, height = 1200, 900
     pygame.display.set_mode((width, height), pygame.OPENGL | pygame.DOUBLEBUF)
-    pygame.display.set_caption("Emergency Stability Fix")
+    pygame.display.set_caption("Soft Body Sim")
     pygame.event.set_grab(True)
     pygame.mouse.set_visible(False)
 
-    ctx = moderngl.create_context()
+    ctx   = moderngl.create_context()
     clock = pygame.time.Clock()
 
     render_solver = UltraStableSolver(points, springs, faces, scale=MESH_TO_METERS)
-    renderer = Renderer(ctx, render_solver, width, height)
+    renderer      = Renderer(ctx, render_solver, width, height)
 
-    # Camera (adjusted for smaller mesh)
     camera_rot = [0.0, 0.0]
     camera_pos = Vector3(0.0, 0.1, 0.17)
 
-    # Physics params
-    current_stiffness = 0.5
-    current_pressure = 0.5
+    # ── Target parameters (what the user is dialling toward) ──────────────────
+    target_stiffness = 0.55
+    target_pressure  = 0.55
 
     print("\n" + "=" * 60)
     print("CONTROLS")
     print("=" * 60)
-    print("Arrows: Rotate | WASD: Move | Q/E: Up/Down")
-    print("Z/X: Stiffness | C/V: Pressure | N/M: Friction")
+    print("Mouse:   Look    | WASD: Move  | Q/E: Up/Down")
+    print("Z/X:     Stiffness±  | C/V: Pressure±")
     print("R: Reset | ESC: Quit")
     print("=" * 60)
 
@@ -205,86 +236,71 @@ def main() -> None:
                 if event.key == pygame.K_ESCAPE:
                     running = False
                 elif event.key == pygame.K_r:
+                    first_ran = False
                     command_queue.put({"type": "reset"})
 
         keys = pygame.key.get_pressed()
+
+        # ── Mouse look ────────────────────────────────────────────────────────
         mouse_dx, mouse_dy = pygame.mouse.get_rel()
-        sensitivity = 0.002
-        camera_rot[1] -= mouse_dx * sensitivity  # yaw
-        camera_rot[0] -= mouse_dy * sensitivity  # pitch
+        sensitivity   = 0.002
+        camera_rot[1] -= mouse_dx * sensitivity
+        camera_rot[0] -= mouse_dy * sensitivity
+        camera_rot[0]  = float(np.clip(camera_rot[0], -1.5, 1.5))
 
-        # Clamp pitch to prevent flipping (Gimbal lock)
-        camera_rot[0] = np.clip(camera_rot[0], -1.5, 1.5)
-
-        # 4. Calculate Directional Vectors (Minecraft-style: horizontal only)
-        _, yaw = camera_rot
-        # Forward and right vectors ignore pitch (horizontal movement only)
-        forward = Vector3(np.sin(yaw), 0.0, -np.cos(yaw))
-        right = Vector3(np.cos(yaw), 0.0, -np.sin(yaw))
-
-        # if yaw close to 90 degrees, forward should be inverted so the controls feel natural (W moves forward relative to view)
+        # ── Camera movement ───────────────────────────────────────────────────
+        _, yaw   = camera_rot
+        forward  = Vector3(np.sin(yaw), 0.0, -np.cos(yaw))
+        right    = Vector3(np.cos(yaw), 0.0, -np.sin(yaw))
         if np.cos(yaw) < -0.1 or np.cos(yaw) > 0.1:
             forward = Vector3(-forward.x, forward.y, -forward.z)
 
-        # 5. Directional Movement (Minecraft-style)
-        camera_speed = 0.002  # Increased speed
+        speed = 0.002
+        if keys[pygame.K_w]: camera_pos += forward * speed
+        if keys[pygame.K_s]: camera_pos -= forward * speed
+        if keys[pygame.K_a]: camera_pos -= right   * speed
+        if keys[pygame.K_d]: camera_pos += right   * speed
+        if keys[pygame.K_q]: camera_pos.y -= speed
+        if keys[pygame.K_e]: camera_pos.y += speed
 
-        # WASD: horizontal movement only
-        if keys[pygame.K_w]:
-            camera_pos += forward * camera_speed
-        if keys[pygame.K_s]:
-            camera_pos -= forward * camera_speed
-        if keys[pygame.K_a]:
-            camera_pos -= right * camera_speed
-        if keys[pygame.K_d]:
-            camera_pos += right * camera_speed
+        # ── Parameter targeting ───────────────────────────────────────────────
+        # We only update the TARGET here.  The physics worker ramps toward it.
+        param_changed = not first_ran
 
-        # Q/E: vertical movement only
-        if keys[pygame.K_q]:
-            camera_pos.y -= camera_speed
-        if keys[pygame.K_e]:
-            camera_pos.y += camera_speed
-
-        param_changed: bool = False
-        # Physics parameters
         if keys[pygame.K_z]:
-            current_stiffness = current_stiffness - 0.001
+            target_stiffness -= 0.001
             param_changed = True
         elif keys[pygame.K_x]:
-            current_stiffness = current_stiffness + 0.001
+            target_stiffness += 0.001
             param_changed = True
 
         if keys[pygame.K_c]:
-            current_pressure = current_pressure - 0.001
+            target_pressure -= 0.001
             param_changed = True
         elif keys[pygame.K_v]:
-            current_pressure = current_pressure + 0.001
+            target_pressure += 0.001
             param_changed = True
 
         if param_changed:
-            command_queue.put({"type": "set_stiffness", "value": current_stiffness})
-            command_queue.put({"type": "set_pressure", "value": current_pressure})
-            param_changed = False
+            command_queue.put({"type": "set_stiffness", "value": target_stiffness})
+            command_queue.put({"type": "set_pressure",  "value": target_pressure})
+            first_ran = True
 
-        # Read positions (already in meters!)
+        # ── Render ────────────────────────────────────────────────────────────
         render_solver.pos[:] = shared_buf
 
-        # CRITICAL: Pass scale=1.0 because pos is already in meters!
-        # The old code passed scale=15.0 which then got multiplied by 0.01
-        # in the renderer, making it way too small
         renderer.draw(
             render_solver,
             camera_rot,
             camera_pos,
-            0.1,  # NO SCALING - already in meters!
-            current_stiffness,
-            current_pressure,
+            0.1,
+            target_stiffness,
+            target_pressure,
             clock.get_fps(),
         )
 
         clock.tick(60)
 
-    # Cleanup
     print("\nShutting down...")
     command_queue.put({"type": "quit"})
     physics_process.join(timeout=2.0)

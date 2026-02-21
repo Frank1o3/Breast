@@ -12,6 +12,7 @@ If _engine is not built yet, imports solver_numpy transparently and warns.
 
 from __future__ import annotations
 
+from traceback import print_tb
 import warnings
 
 import numpy as np
@@ -23,7 +24,7 @@ from breast.types import FACE
 # Try compiled extension
 # ─────────────────────────────────────────────────────────────────────────────
 try:
-    import _engine as _lib  # type: ignore
+    import breast._engine as _lib  # type: ignore
 
     _BACKEND = "cpp"
 except ImportError:
@@ -39,7 +40,6 @@ except ImportError:
     from breast.solver_numpy import UltraStableSolver  # noqa: F401 (re-export)
 
     _BACKEND = "numpy"
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # C++ wrapper
@@ -172,5 +172,6 @@ if _BACKEND == "cpp":
             if self.steps_stable % 500 == 0 and self.steps_stable > 0:
                 print(
                     f"[Solver/C++] {self.steps_stable} steps stable | "
-                    f"V={self.rest_volume:.5f}"
+                    f"V={self.rest_volume:.5f}m³"
                 )
+

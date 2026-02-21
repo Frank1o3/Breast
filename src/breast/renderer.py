@@ -6,7 +6,7 @@ import numpy as np
 import pygame
 
 from breast.models import Vector3
-from breast.solver_numpy import UltraStableSolver
+from breast.solver_cpp import UltraStableSolver
 from breast.types import PROJ, VIEW
 
 # ------------------------
