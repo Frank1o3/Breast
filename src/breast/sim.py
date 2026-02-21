@@ -36,7 +36,7 @@ from breast.types import FACE
 MESH_TO_METERS = 0.1  # 5 units * 0.01 = 0.05m radius (5cm)
 
 # Physics (very conservative)
-PHYSICS_FPS = 120
+PHYSICS_FPS = 60
 SUB_STEPS = 5  # Many small steps = more stable
 
 # ===============================
@@ -121,8 +121,8 @@ def main() -> None:
 
     # Generate mesh
     print("\nGenerating mesh...")
-    rings = 80  # Lower resolution for testing
-    segments = 80
+    rings = 40   # Lower resolution for testing
+    segments = 40
     radius = 5.0
     phi_bias = 2.1
 

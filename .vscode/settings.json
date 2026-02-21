@@ -1,7 +1,4 @@
 {
-    "python-envs.defaultEnvManager": "ms-python.python:poetry",
-    "python-envs.defaultPackageManager": "ms-python.python:poetry",
-    "python-envs.pythonProjects": [],
     "editor.detectIndentation": false,
     "cSpell.words": [
         "barycentrics",
@@ -25,5 +22,9 @@
         "WASD"
     ],
     "python.analysis.autoImportCompletions": true,
-    "makefile.makefilePath": "${workspaceFolder}/Makefile"
+    "makefile.makefilePath": "${workspaceFolder}/Makefile",
+    "cmake.sourceDirectory": "/home/franklin/Documents/Breast/cpp",
+    "python-envs.defaultEnvManager": "ms-python.python:venv",
+    "python-envs.defaultPackageManager": "ms-python.python:pip",
+    "python-envs.pythonProjects": []
 }
