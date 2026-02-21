@@ -134,7 +134,6 @@ class Renderer:
         scale: float,
         stiffness: float,
         pressure: float,
-        current_friction: float,
         fps: float,
     ) -> None:
         self.ctx.clear(0.1, 0.1, 0.15, 1.0)
@@ -147,7 +146,7 @@ class Renderer:
         self.prog["u_view"].write(view.tobytes())  # type: ignore
         self.prog["u_proj"].write(proj.tobytes())  # type: ignore
 
-        light_world = np.array([5.0, 8.0, 3.0, 1.0], dtype=np.float32)
+        light_world = np.array([5.5, 8.0, 3.0, 1.0], dtype=np.float32)
         light_view = (view.T @ light_world)[:3]
 
         self.prog["u_light_pos_view"].value = tuple(light_view)  # type: ignore
@@ -155,7 +154,7 @@ class Renderer:
 
         self.vao.render()
 
-        self._draw_ui_overlay(stiffness, pressure, current_friction, fps)
+        self._draw_ui_overlay(stiffness, pressure, fps)
         pygame.display.flip()
 
     # ------------------------
@@ -187,14 +186,12 @@ class Renderer:
         self,
         stiffness: float,
         pressure: float,
-        friction: float,
         fps: float,
     ) -> None:
         lines = [
             f"FPS: {fps:.1f}",
             f"Stiffness: {stiffness:.3f}",
             f"Pressure: {pressure:.3f}",
-            f"Friction: {friction:.3f}",
         ]
 
         line_h = self.font.get_height()

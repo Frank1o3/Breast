@@ -11,6 +11,7 @@ Changes from your current sim:
 """
 
 import ctypes
+import math
 from multiprocessing import Array, Process, Queue
 from multiprocessing.sharedctypes import SynchronizedArray
 import os
@@ -85,8 +86,6 @@ def physics_worker(
                 solver.stiffness = np.float32(cmd["value"])
             elif cmd["type"] == "set_pressure":
                 solver.pressure_stiffness = np.float32(cmd["value"])
-            elif cmd["type"] == "set_friction":
-                solver.friction = float(cmd["value"])
 
         # Physics substeps
         for _ in range(SUB_STEPS):
@@ -122,13 +121,13 @@ def main() -> None:
 
     # Generate mesh
     print("\nGenerating mesh...")
-    rings = 20  # Lower resolution for testing
-    segments = 40
+    rings = 80  # Lower resolution for testing
+    segments = 80
     radius = 5.0
-    phi_bias = 2.2
+    phi_bias = 2.1
 
     points, springs, faces = generate_hemisphere(
-        radius=radius, rings=rings, segments=segments, phi_bias=phi_bias
+        radius=radius, rings=rings, segments=segments, phi_bias=phi_bias, rot_x=math.radians(-75)
     )
 
     num_points = len(points)
@@ -186,9 +185,8 @@ def main() -> None:
     camera_pos = Vector3(0.0, 0.1, 0.17)
 
     # Physics params
-    current_stiffness = 0.001
-    current_pressure = 0.001
-    current_friction = 0.001
+    current_stiffness = 0.5
+    current_pressure = 0.5
 
     print("\n" + "=" * 60)
     print("CONTROLS")
@@ -218,30 +216,33 @@ def main() -> None:
         # Clamp pitch to prevent flipping (Gimbal lock)
         camera_rot[0] = np.clip(camera_rot[0], -1.5, 1.5)
 
-        # 4. Calculate Directional Vectors
-        pitch, yaw = camera_rot
-        # Note: These trig functions are based on your specific renderer matrix order
-        forward = Vector3(np.sin(yaw) * np.cos(pitch), np.sin(pitch), np.cos(yaw) * np.cos(pitch))
+        # 4. Calculate Directional Vectors (Minecraft-style: horizontal only)
+        _, yaw = camera_rot
+        # Forward and right vectors ignore pitch (horizontal movement only)
+        forward = Vector3(np.sin(yaw), 0.0, -np.cos(yaw))
+        right = Vector3(np.cos(yaw), 0.0, -np.sin(yaw))
 
-        right = Vector3(np.cos(yaw), 0.0, np.sin(yaw))
+        # if yaw close to 90 degrees, forward should be inverted so the controls feel natural (W moves forward relative to view)
+        if np.cos(yaw) < -0.1 or np.cos(yaw) > 0.1:
+            forward = Vector3(-forward.x, forward.y, -forward.z)
 
-        # 5. Directional Movement (Fly-cam)
-        camera_speed = 0.002  # Adjusted for your 0.1m scale
+        # 5. Directional Movement (Minecraft-style)
+        camera_speed = 0.002  # Increased speed
 
+        # WASD: horizontal movement only
         if keys[pygame.K_w]:
-            camera_pos -= forward * camera_speed
-        elif keys[pygame.K_s]:
             camera_pos += forward * camera_speed
-
+        if keys[pygame.K_s]:
+            camera_pos -= forward * camera_speed
         if keys[pygame.K_a]:
             camera_pos -= right * camera_speed
-        elif keys[pygame.K_d]:
+        if keys[pygame.K_d]:
             camera_pos += right * camera_speed
 
-        # Vertical movement (World-space)
+        # Q/E: vertical movement only
         if keys[pygame.K_q]:
             camera_pos.y -= camera_speed
-        elif keys[pygame.K_e]:
+        if keys[pygame.K_e]:
             camera_pos.y += camera_speed
 
         param_changed: bool = False
@@ -260,17 +261,9 @@ def main() -> None:
             current_pressure = current_pressure + 0.001
             param_changed = True
 
-        if keys[pygame.K_n]:
-            current_friction = current_friction - 0.001
-            param_changed = True
-        elif keys[pygame.K_m]:
-            current_friction = current_friction + 0.001
-            param_changed = True
-
         if param_changed:
             command_queue.put({"type": "set_stiffness", "value": current_stiffness})
             command_queue.put({"type": "set_pressure", "value": current_pressure})
-            command_queue.put({"type": "set_friction", "value": current_friction})
             param_changed = False
 
         # Read positions (already in meters!)
@@ -286,7 +279,6 @@ def main() -> None:
             0.1,  # NO SCALING - already in meters!
             current_stiffness,
             current_pressure,
-            current_friction,
             clock.get_fps(),
         )
 
