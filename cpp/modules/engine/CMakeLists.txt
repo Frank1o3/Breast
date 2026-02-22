@@ -12,6 +12,7 @@
 set(ENGINE_SOURCES
     src/solver.cpp
     src/volume.cpp
+    src/sim_thread.cpp
 )
 
 # ── Shared library ────────────────────────────────────────────────────────────

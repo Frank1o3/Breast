@@ -17,7 +17,7 @@ import pygame
 from breast.hemisphere import generate_hemisphere
 from breast.models import Point, Spring, Vector3
 from breast.renderer import Renderer
-from breast.solver_cpp import UltraStableSolver
+from breast.engine import Solver, SimThread
 from breast.types import FACE
 
 # ===============================

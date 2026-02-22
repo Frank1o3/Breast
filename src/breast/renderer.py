@@ -6,7 +6,7 @@ import numpy as np
 import pygame
 
 from breast.models import Vector3
-from breast.solver_cpp import UltraStableSolver
+from breast.engine import Solver
 from breast.types import PROJ, VIEW
 
 # ------------------------
@@ -70,7 +70,7 @@ class Renderer:
     def __init__(
         self,
         ctx: moderngl.Context,
-        solver: UltraStableSolver,
+        solver: Solver,
         width: int = 800,
         height: int = 600,
     ):
