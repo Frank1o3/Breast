@@ -12,6 +12,7 @@ Design goals:
 from __future__ import annotations
 
 import math
+
 import numpy as np
 
 from breast.models import Point, Spring
@@ -22,28 +23,37 @@ from breast.types import GEN_HEMI
 # Rotation Matrix Builder (Euler XYZ order)
 # Applies rotations in order: X -> Y -> Z
 # ------------------------------------------------------------
-def build_rotation_matrix(rx: float, ry: float, rz: float) -> np.ndarray:
+def build_rotation_matrix(rx: float, ry: float, rz: float) -> np.typing.NDArray[np.float64]:
     cx, sx = math.cos(rx), math.sin(rx)
     cy, sy = math.cos(ry), math.sin(ry)
     cz, sz = math.cos(rz), math.sin(rz)
 
-    Rx = np.array([
-        [1, 0, 0],
-        [0, cx, -sx],
-        [0, sx, cx],
-    ])
+    Rx = np.array(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, cx, -sx],
+            [0.0, sx, cx],
+        ],
+        dtype=np.float32,
+    )
 
-    Ry = np.array([
-        [cy, 0, sy],
-        [0, 1, 0],
-        [-sy, 0, cy],
-    ])
+    Ry = np.array(
+        [
+            [cy, 0.0, sy],
+            [0.0, 1.0, 0.0],
+            [-sy, 0.0, cy],
+        ],
+        dtype=np.float32,
+    )
 
-    Rz = np.array([
-        [cz, -sz, 0],
-        [sz,  cz, 0],
-        [0,   0,  1],
-    ])
+    Rz = np.array(
+        [
+            [cz, -sz, 0.0],
+            [sz, cz, 0.0],
+            [0.0, 0.0, 1.0],
+        ],
+        dtype=np.float32,
+    )
 
     return Rz @ Ry @ Rx
 
@@ -61,7 +71,6 @@ def generate_hemisphere(
     rot_y: float = 0.0,
     rot_z: float = 0.0,
 ) -> GEN_HEMI:
-
     points: list[Point] = []
     springs: list[Spring] = []
     faces: list[list[int]] = []
@@ -71,10 +80,10 @@ def generate_hemisphere(
     # --------------------------------------------------------
     # 1. Latitude / longitude samples
     # --------------------------------------------------------
-    phi_values:list[float] = []
+    phi_values: list[float] = []
     for r in range(1, rings + 1):
         t = r / rings
-        phi_values.append((math.pi / 2.0) * (t ** phi_bias))
+        phi_values.append((math.pi / 2.0) * (t**phi_bias))
 
     theta_values = [(2.0 * math.pi * s) / segments for s in range(segments)]
 
@@ -144,11 +153,13 @@ def generate_hemisphere(
 
     last_ring_base = 1 + (rings - 1) * segments
     for s in range(segments):
-        faces.append([
-            last_ring_base + s,
-            last_ring_base + (s + 1) % segments,
-            center_idx,
-        ])
+        faces.append(
+            [
+                last_ring_base + s,
+                last_ring_base + (s + 1) % segments,
+                center_idx,
+            ]
+        )
 
     # --------------------------------------------------------
     # 7. Springs
@@ -162,9 +173,7 @@ def generate_hemisphere(
 
         a, b = points[i], points[j]
         rest = (
-            (b.pos.x - a.pos.x) ** 2 +
-            (b.pos.y - a.pos.y) ** 2 +
-            (b.pos.z - a.pos.z) ** 2
+            (b.pos.x - a.pos.x) ** 2 + (b.pos.y - a.pos.y) ** 2 + (b.pos.z - a.pos.z) ** 2
         ) ** 0.5
 
         springs.append(Spring(a, b, stiffness=k_base, rest_length=rest))

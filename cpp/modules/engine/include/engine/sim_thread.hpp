@@ -1,9 +1,12 @@
-// engine/include/engine/sim_thread.hpp
 #pragma once
+// engine/sim_thread.hpp
+
 #include "engine/solver.hpp"
+#include "collision/world.hpp"
+
 #include <atomic>
+#include <memory>
 #include <thread>
-#include <mutex>
 
 namespace breast::engine
 {
@@ -11,33 +14,34 @@ namespace breast::engine
     class SimThread
     {
     public:
-        explicit SimThread(std::unique_ptr<Solver> solver,
-                           int physics_fps = 120,
-                           int sub_steps = 5);
+        SimThread(
+            std::unique_ptr<Solver> solver,
+            int physics_fps = 120,
+            int sub_steps = 5);
         ~SimThread();
 
-        // Zero-copy access — caller must hold lock or accept tearing
-        // (tearing is acceptable for rendering — a slightly stale frame is fine)
-        const float *pos_data() const { return solver_->pos.data(); }
-        int num_points() const { return solver_->num_points(); }
-
-        // Thread control
+        // ── Thread control ────────────────────────────────────────────────────────
         void start();
         void stop();
+        bool is_running() const { return running_.load(); }
 
-        // Parameter updates (lock-free atomics — no stall on render thread)
+        // ── Parameter control (lock-free, ramped inside loop) ─────────────────────
         void set_stiffness(float v) { target_stiffness_.store(v); }
         void set_pressure(float v) { target_pressure_.store(v); }
         void reset() { reset_flag_.store(true); }
 
-        bool is_running() const { return running_.load(); }
+        // ── Position access (zero-copy view into solver buffer) ───────────────────
+        const float *pos_data() const { return solver_->pos.data(); }
+        int num_points() const { return solver_->num_points(); }
+
+        // ── Collision world — owned by SimThread, configured from Python/sim.py ───
+        // The loop calls world.resolve() each tick before spring constraints.
+        // Add colliders via sim_thread.collision_world.add_sphere(...) etc.
+        collision::World collision_world;
 
     private:
-        void loop_();
-        void ramp_(float &current, float target, float rate, float dt);
-
         std::unique_ptr<Solver> solver_;
-        std::unique_ptr<Solver> initial_state_; // saved for reset
+        std::unique_ptr<Solver> initial_state_;
 
         std::thread thread_;
         std::atomic<bool> running_{false};
@@ -48,6 +52,9 @@ namespace breast::engine
 
         int physics_fps_;
         int sub_steps_;
+
+        void loop_();
+        void ramp_(float &current, float target, float rate, float dt);
     };
 
 } // namespace breast::engine

@@ -2,152 +2,25 @@
 Soft Body Sim
 """
 
-import ctypes
 import math
-from multiprocessing import Array, Process, Queue
-from multiprocessing.sharedctypes import SynchronizedArray
-import os
 import sys
-import time
 
 import moderngl
 import numpy as np
 import pygame
 
+from breast.engine import SimThread
 from breast.hemisphere import generate_hemisphere
-from breast.models import Point, Spring, Vector3
+from breast.models import Vector3
 from breast.renderer import Renderer
-from breast.engine import Solver, SimThread
-from breast.types import FACE
 
 # ===============================
 # CONSTANTS
 # ===============================
 
 MESH_TO_METERS = 0.1
-
 PHYSICS_FPS = 120
-SUB_STEPS   = 5
-
-# How fast parameters interpolate toward their target value (units/second).
-# Smaller  = slower/safer ramp.  Larger = snappier but riskier on big jumps.
-STIFFNESS_RATE = 2.5   # stiffness units per second
-PRESSURE_RATE  = 2.5   # pressure  units per second
-
-# ===============================
-# PHYSICS WORKER
-# ===============================
-
-
-def physics_worker(
-    shared_positions: SynchronizedArray[float],
-    command_queue: Queue[dict[str, str | float]],
-    num_points: int,
-    points: list[Point],
-    springs: list[Spring],
-    faces: FACE,
-) -> None:
-    """Physics worker — ramps parameters gradually to avoid explosions."""
-    print(f"[Physics Worker {os.getpid()}] Starting")
-
-    def make_solver() -> UltraStableSolver:
-        return UltraStableSolver(
-            points, springs, faces,
-            gravity=-9.8,
-            scale=MESH_TO_METERS,
-        )
-
-    solver = make_solver()
-
-    dt      = 1.0 / PHYSICS_FPS
-    sub_dt  = dt / SUB_STEPS
-    running = True
-
-    # ── Parameter ramp state ──────────────────────────────────────────────────
-    # current_* is what the solver actually sees right now.
-    # target_*  is where the user wants to end up.
-    # On reset the solver resets to defaults, so current must also reset.
-    current_stiffness = solver.stiffness
-    current_pressure  = solver.pressure_stiffness
-    target_stiffness  = current_stiffness
-    target_pressure   = current_pressure
-
-
-    last_time = time.perf_counter()
-
-    shared_buf = np.frombuffer(
-        shared_positions.get_obj(), dtype=np.float32
-    ).reshape((num_points, 3))
-
-    while running:
-        # ── Commands ─────────────────────────────────────────────────────────
-        while not command_queue.empty():
-            cmd = command_queue.get()
-
-            if cmd["type"] == "quit":
-                running = False
-                break
-
-            elif cmd["type"] == "reset":
-                solver = make_solver()
-                # Reset current to solver defaults so the ramp starts from a
-                # safe known state rather than wherever we were before.
-                current_stiffness = solver.stiffness
-                current_pressure  = solver.pressure_stiffness
-                # Keep targets — user wants those values eventually.
-                # The ramp will re-approach them safely from the defaults.
-
-            elif cmd["type"] == "set_stiffness":
-                target_stiffness = float(cmd["value"])
-
-            elif cmd["type"] == "set_pressure":
-                target_pressure = float(cmd["value"])
-
-        if not running:
-            break
-
-        # ── Ramp current → target ─────────────────────────────────────────────
-        # Move current values toward targets at a fixed rate per second,
-        # scaled by the real elapsed dt to stay frame-rate independent.
-        real_dt = time.perf_counter() - last_time   # may be slightly off; use dt as fallback
-        ramp_dt = min(real_dt, dt * 2)               # clamp runaway spikes
-
-        def ramp(current: float, target: float, rate: float) -> float:
-            delta = target - current
-            step  = rate * ramp_dt
-            if abs(delta) <= step:
-                return target
-            return current + math.copysign(step, delta)
-
-        current_stiffness = ramp(current_stiffness, target_stiffness, STIFFNESS_RATE)
-        current_pressure  = ramp(current_pressure,  target_pressure,  PRESSURE_RATE)
-
-        solver.stiffness          = current_stiffness
-        solver.pressure_stiffness = current_pressure
-
-        # ── Physics substeps ──────────────────────────────────────────────────
-        for _ in range(SUB_STEPS):
-            solver.update(sub_dt)
-
-        # ── Explosion guard ───────────────────────────────────────────────────
-        if solver.is_exploded:
-            print(f"[Physics Worker {os.getpid()}] Explosion — resetting")
-            solver            = make_solver()
-            current_stiffness = solver.stiffness
-            current_pressure  = solver.pressure_stiffness
-
-        # ── Write positions ───────────────────────────────────────────────────
-        shared_buf[:] = solver.pos
-
-        # ── Rate limiting ─────────────────────────────────────────────────────
-        elapsed    = time.perf_counter() - last_time
-        sleep_time = dt - elapsed
-        if sleep_time > 0:
-            time.sleep(sleep_time)
-        last_time = time.perf_counter()
-
-    print(f"[Physics Worker {os.getpid()}] Shutdown")
-
+SUB_STEPS = 5
 
 # ===============================
 # MAIN
@@ -160,42 +33,61 @@ def main() -> None:
     print("=" * 60)
 
     print("\nGenerating mesh...")
-    first_ran = False
-    rings    = 40
-    segments = 50
-    radius   = 4.5
-    phi_bias = 1.4
+    rings = 40
+    segments = 45
+    radius = 4.5
+    phi_bias = 1.54
 
     points, springs, faces = generate_hemisphere(
-        radius=radius, rings=rings, segments=segments,
-        phi_bias=phi_bias, rot_x=math.radians(-75),
+        radius=radius,
+        rings=rings,
+        segments=segments,
+        phi_bias=phi_bias,
+        rot_x=math.radians(-15),
     )
 
     num_points = len(points)
     print(f"Mesh: {num_points} points, {len(springs)} springs, {len(faces)} faces")
 
-    # Shared memory
-    shared_positions = Array(ctypes.c_float, num_points * 3, lock=True)
-    shared_buf = np.frombuffer(
-        shared_positions.get_obj(), dtype=np.float32
-    ).reshape((num_points, 3))
-
-    initial_pos = np.array(
-        [[p.pos.x * MESH_TO_METERS, p.pos.y * MESH_TO_METERS, p.pos.z * MESH_TO_METERS]
-        for p in points],
+    # ── Build numpy arrays for C++ constructors ───────────────────────────────
+    pts_arr = np.array(
+        [[p.pos.x, p.pos.y, p.pos.z, float(p.pinned)] for p in points],
         dtype=np.float32,
     )
-    shared_buf[:] = initial_pos
 
-    command_queue: Queue[dict[str, str | float]] = Queue()
-
-    print(f"\nStarting physics worker ({PHYSICS_FPS} FPS, {SUB_STEPS} substeps)...")
-    physics_process = Process(
-        target=physics_worker,
-        args=(shared_positions, command_queue, num_points, points, springs, faces),
-        daemon=True,
+    pid = {id(p): i for i, p in enumerate(points)}
+    sp_idx = np.array(
+        [[pid[id(sp.a)], pid[id(sp.b)]] for sp in springs],
+        dtype=np.int32,
     )
-    physics_process.start()
+    sp_f = np.array(
+        [[sp.stiffness, sp.rest_length] for sp in springs],
+        dtype=np.float32,
+    )
+    faces_arr = faces.astype(np.int32)
+
+    # ── Physics thread ────────────────────────────────────────────────────────
+    print(f"\nStarting physics thread ({PHYSICS_FPS} FPS, {SUB_STEPS} substeps)...")
+    sim = SimThread(
+        pts_arr,
+        sp_idx,
+        sp_f,
+        faces_arr,
+        gravity_y=-9.8,
+        scale=MESH_TO_METERS,
+        physics_fps=PHYSICS_FPS,
+        sub_steps=SUB_STEPS,
+    )
+
+    # Grab zero-copy position view once — stays valid for the lifetime of sim
+    pos = sim.get_pos()
+
+    # Seed targets before starting so the ramp begins at the right value
+    target_stiffness = 0.55
+    target_pressure = 0.55
+    sim.set_stiffness(target_stiffness)
+    sim.set_pressure(target_pressure)
+    sim.start()
 
     # ── Renderer ──────────────────────────────────────────────────────────────
     print("Initializing renderer...")
@@ -206,18 +98,17 @@ def main() -> None:
     pygame.event.set_grab(True)
     pygame.mouse.set_visible(False)
 
-    ctx   = moderngl.create_context()
+    ctx = moderngl.create_context()
     clock = pygame.time.Clock()
 
-    render_solver = UltraStableSolver(points, springs, faces, scale=MESH_TO_METERS)
-    renderer      = Renderer(ctx, render_solver, width, height)
+    # Renderer only needs faces + the live pos view for VBO uploads
+    renderer = Renderer(ctx, pos, faces_arr, width, height)
 
     camera_rot = [0.0, 0.0]
     camera_pos = Vector3(0.0, 0.1, 0.17)
 
-    # ── Target parameters (what the user is dialling toward) ──────────────────
-    target_stiffness = 0.55
-    target_pressure  = 0.55
+    # Pre-allocate scaled position buffer — reused every frame, no heap alloc
+    world_pos = np.empty((num_points, 3), dtype=np.float32)
 
     print("\n" + "=" * 60)
     print("CONTROLS")
@@ -236,64 +127,64 @@ def main() -> None:
                 if event.key == pygame.K_ESCAPE:
                     running = False
                 elif event.key == pygame.K_r:
-                    first_ran = False
-                    command_queue.put({"type": "reset"})
+                    sim.reset()
 
         keys = pygame.key.get_pressed()
 
         # ── Mouse look ────────────────────────────────────────────────────────
         mouse_dx, mouse_dy = pygame.mouse.get_rel()
-        sensitivity   = 0.002
+        sensitivity = 0.002
         camera_rot[1] -= mouse_dx * sensitivity
         camera_rot[0] -= mouse_dy * sensitivity
-        camera_rot[0]  = float(np.clip(camera_rot[0], -1.5, 1.5))
+        camera_rot[0] = float(np.clip(camera_rot[0], -1.5, 1.5))
 
         # ── Camera movement ───────────────────────────────────────────────────
-        _, yaw   = camera_rot
-        forward  = Vector3(np.sin(yaw), 0.0, -np.cos(yaw))
-        right    = Vector3(np.cos(yaw), 0.0, -np.sin(yaw))
-        if np.cos(yaw) < -0.1 or np.cos(yaw) > 0.1:
-            forward = Vector3(-forward.x, forward.y, -forward.z)
+        _, yaw = camera_rot
+        forward = Vector3(math.sin(yaw), 0.0, -math.cos(yaw))
+        right = Vector3(math.cos(yaw), 0.0, math.sin(yaw))
 
         speed = 0.002
-        if keys[pygame.K_w]: camera_pos += forward * speed
-        if keys[pygame.K_s]: camera_pos -= forward * speed
-        if keys[pygame.K_a]: camera_pos -= right   * speed
-        if keys[pygame.K_d]: camera_pos += right   * speed
-        if keys[pygame.K_q]: camera_pos.y -= speed
-        if keys[pygame.K_e]: camera_pos.y += speed
+        if keys[pygame.K_w]:
+            camera_pos -= forward * speed
+        if keys[pygame.K_s]:
+            camera_pos += forward * speed
+        if keys[pygame.K_a]:
+            camera_pos -= right * speed
+        if keys[pygame.K_d]:
+            camera_pos += right * speed
+        if keys[pygame.K_q]:
+            camera_pos.y -= speed
+        if keys[pygame.K_e]:
+            camera_pos.y += speed
 
         # ── Parameter targeting ───────────────────────────────────────────────
-        # We only update the TARGET here.  The physics worker ramps toward it.
-        param_changed = not first_ran
-
+        changed = False
         if keys[pygame.K_z]:
             target_stiffness -= 0.001
-            param_changed = True
+            changed = True
         elif keys[pygame.K_x]:
             target_stiffness += 0.001
-            param_changed = True
-
+            changed = True
         if keys[pygame.K_c]:
             target_pressure -= 0.001
-            param_changed = True
+            changed = True
         elif keys[pygame.K_v]:
             target_pressure += 0.001
-            param_changed = True
+            changed = True
 
-        if param_changed:
-            command_queue.put({"type": "set_stiffness", "value": target_stiffness})
-            command_queue.put({"type": "set_pressure",  "value": target_pressure})
-            first_ran = True
+        if changed:
+            sim.set_stiffness(target_stiffness)
+            sim.set_pressure(target_pressure)
 
         # ── Render ────────────────────────────────────────────────────────────
-        render_solver.pos[:] = shared_buf
+        # pos is a zero-copy view — physics thread writes, render thread reads.
+        # One frame of tearing is imperceptible and avoids any lock overhead.
+        np.multiply(pos, MESH_TO_METERS, out=world_pos)
 
         renderer.draw(
-            render_solver,
+            world_pos,
             camera_rot,
             camera_pos,
-            0.1,
             target_stiffness,
             target_pressure,
             clock.get_fps(),
@@ -302,8 +193,7 @@ def main() -> None:
         clock.tick(60)
 
     print("\nShutting down...")
-    command_queue.put({"type": "quit"})
-    physics_process.join(timeout=2.0)
+    sim.stop()
     pygame.quit()
     sys.exit()
 

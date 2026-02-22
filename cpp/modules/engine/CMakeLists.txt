@@ -23,6 +23,7 @@ add_library(engine SHARED ${ENGINE_SOURCES})
 target_include_directories(engine
     PUBLIC  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
             "$<INSTALL_INTERFACE:include>"
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../collision/include"
 )
 
 # Apply shared compile flags
@@ -30,6 +31,10 @@ softsim_compile_options(engine)
 
 # OpenMP — engine uses #pragma omp in hot loops
 softsim_enable_openmp(engine)
+
+# ── Dependencies ──────────────────────────────────────────────────────────────
+# Engine depends on collision for world/constraint handling
+target_link_libraries(engine PRIVATE collision)
 
 # ── Module-local dependencies ─────────────────────────────────────────────────
 # Add find_package() calls here for deps that ONLY engine needs.

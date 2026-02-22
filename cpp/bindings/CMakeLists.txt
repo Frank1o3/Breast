@@ -45,16 +45,16 @@ endmacro()
 softsim_binding(
     NAME    _engine
     SOURCES bind_engine.cpp
-    LINKS   engine
+    LINKS   engine collision
 )
 
 # Future bindings:
 #
-# softsim_binding(
-#     NAME    _collision
-#     SOURCES bind_collision.cpp
-#     LINKS   collision engine   # collision depends on engine — both linked here
-# )
+softsim_binding(
+    NAME    _collision
+    SOURCES bind_collision.cpp
+    LINKS   collision engine   # collision depends on engine — both linked here
+)
 #
 # softsim_binding(
 #     NAME    _rendering

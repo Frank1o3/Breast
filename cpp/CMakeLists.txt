@@ -120,8 +120,8 @@ endif()
 # ─────────────────────────────────────────────────────────────────────────────
 # Modules (each builds a shared lib)
 # ─────────────────────────────────────────────────────────────────────────────
+add_subdirectory(modules/collision)
 add_subdirectory(modules/engine)
-# add_subdirectory(modules/collision)
 # add_subdirectory(modules/rendering)
 
 # ─────────────────────────────────────────────────────────────────────────────
