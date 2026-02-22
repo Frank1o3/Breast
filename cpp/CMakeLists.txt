@@ -139,7 +139,7 @@ add_custom_target(stubs
     COMMAND ${CMAKE_COMMAND} -E env
             "PYTHONPATH=${CMAKE_BINARY_DIR}/lib:$ENV{PYTHONPATH}"
             "${Python_EXECUTABLE}" -m pybind11_stubgen
-                --output-dir "${BREAST_PKG_DIR}"
+                --output-dir "${BREAST_PKG_DIR}/engine"
                 _engine
     DEPENDS _engine
 )

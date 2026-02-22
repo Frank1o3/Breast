@@ -22,7 +22,7 @@ from breast.types import FACE
 # Try compiled extension
 # ─────────────────────────────────────────────────────────────────────────────
 try:
-    import breast._engine as _lib  # type: ignore
+    import breast.engine as _lib  # type: ignore
 
     _backend = "cpp"
 except ImportError:

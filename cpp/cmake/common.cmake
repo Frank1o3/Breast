@@ -43,10 +43,29 @@ endfunction()
 #   After build, copies the compiled .so / .pyd into ${BREAST_PKG_DIR}.
 #   Used by every pybind11 extension target in bindings/CMakeLists.txt.
 function(softsim_install_to_pkg target)
+    # Derive a clean subdir name by stripping the leading underscore.
+    # _engine  →  engine,   _collision  →  collision, etc.
+    string(REGEX REPLACE "^_" "" _subdir "${target}")
+    set(_dest "${BREAST_PKG_DIR}/${_subdir}")
+
     add_custom_command(TARGET ${target} POST_BUILD
+        # 1. Make the subpackage directory
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${_dest}"
+
+        # 2. Copy the compiled extension (.so / .pyd)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "$<TARGET_FILE:${target}>"
-                "${BREAST_PKG_DIR}/$<TARGET_FILE_NAME:${target}>"
-        COMMENT "Installing ${target} → ${BREAST_PKG_DIR}"
+                "${_dest}/$<TARGET_FILE_NAME:${target}>"
+
+        # 3. Generate __init__.py only if it does not already exist.
+        #    file(GENERATE ...) runs at generate-time, not build-time,
+        #    so we use a small cmake -P script instead to get the
+        #    "don't overwrite" behaviour.
+        COMMAND ${CMAKE_COMMAND}
+                -D DEST_FILE="${_dest}/__init__.py"
+                -D MODULE="${target}"
+                -P "${CMAKE_SOURCE_DIR}/cmake/write_init.cmake"
+
+        COMMENT "Installing ${target} → ${_dest}"
     )
 endfunction()
