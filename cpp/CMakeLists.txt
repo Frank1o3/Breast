@@ -45,6 +45,18 @@ if(NOT DEFINED SKBUILD AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Build mode: core-only or full Python package
+# Used to control whether Python package files (.py, .pyi) are generated
+# ─────────────────────────────────────────────────────────────────────────────
+option(BREAST_CORE_ONLY "Build only C++ extension modules without Python package files" OFF)
+
+if(BREAST_CORE_ONLY)
+    message(STATUS "Build mode: CORE_ONLY (extension modules only, no Python package files)")
+else()
+    message(STATUS "Build mode: FULL (extension modules + Python package files)")
+endif()
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Optional local-dev copy destination
 # Only used when building manually via build.sh
 # scikit-build-core does NOT pass this variable
@@ -139,9 +151,9 @@ add_subdirectory(bindings)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Optional stub generation
-# Only valid in dev mode (needs local package path)
+# Only valid in dev mode (needs local package path) and NOT core-only mode
 # ─────────────────────────────────────────────────────────────────────────────
-if(BREAST_PKG_DIR)
+if(BREAST_PKG_DIR AND NOT BREAST_CORE_ONLY)
     add_custom_target(stubs
         COMMENT "Generating Python stubs via pybind11-stubgen"
         WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/lib"

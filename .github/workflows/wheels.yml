@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -20,13 +20,18 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.10"
           cache: "pip"
 
+      - name: Prepare ccache directory
+        if: runner.os == 'Linux'
+        run: mkdir -p ccache
+
       - name: Cache ccache
+        if: runner.os == 'Linux'
         uses: actions/cache@v4
         with:
-          path: ~/.cache/ccache
+          path: ccache
           key: ${{ runner.os }}-ccache-${{ hashFiles('**/*.cpp', '**/*.hpp', '**/CMakeLists.txt') }}
           restore-keys: |
             ${{ runner.os }}-ccache-
@@ -37,11 +42,14 @@ jobs:
 
       - run: python -m cibuildwheel --output-dir wheelhouse
         env:
-          CIBW_BUILD: "cp313-* cp314-*"
+          CIBW_BUILD: "cp310-* cp311-* cp312-* cp313-*"
           CIBW_ARCHS_WINDOWS: "AMD64"
-          CIBW_ARCHS_LINUX: "x86_64"
+          CIBW_ARCHS_MACOS: "x86_64 arm64"
           CIBW_SKIP: "*-musllinux_*"
           CIBW_BUILD_VERBOSITY: "1"
+          CIBW_ENVIRONMENT: CMAKE_ARGS="-DBREAST_CORE_ONLY=ON"
+
+          CMAKE_ARGS: "-DBREAST_CORE_ONLY=ON"
 
           CIBW_BEFORE_ALL_LINUX: |
             yum install -y ccache || microdnf install -y ccache
@@ -51,6 +59,7 @@ jobs:
             CXX="ccache g++"
             CCACHE_DIR=/project/ccache
             CMAKE_BUILD_PARALLEL_LEVEL=4
+            CMAKE_ARGS="-DBREAST_CORE_ONLY=ON"
 
           CIBW_ENVIRONMENT_PASS_LINUX: CCACHE_DIR
 

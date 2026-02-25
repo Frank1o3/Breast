@@ -215,7 +215,6 @@ PYBIND11_MODULE(_engine, m)
     // ── Free functions ────────────────────────────────────────────────────────
     m.def("calc_mesh_volume", [](py::array_t<float, py::array::c_style> pos_arr, py::array_t<int32_t, py::array::c_style> faces_arr) -> float
           {
-            auto rp = pos_arr.unchecked<2>();
             auto rf = faces_arr.unchecked<2>();
             const int F = static_cast<int>(rf.shape(0));
             std::vector<int32_t> flat(F * 3);

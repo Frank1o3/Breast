@@ -84,6 +84,7 @@ endfunction()
 # ── Copy-to-package helper ────────────────────────────────────────────────────
 # softsim_install_to_pkg(target)
 #   After build, copies the compiled .so / .pyd into ${BREAST_PKG_DIR}.
+#   If BREAST_CORE_ONLY is OFF, also generates __init__.py.
 #   Used by every pybind11 extension target in bindings/CMakeLists.txt.
 function(softsim_install_to_pkg target)
 
@@ -95,11 +96,21 @@ function(softsim_install_to_pkg target)
     # ─────────────────────────────────────────────────────────────────────────
     if(SKBUILD)
 
+        # Always install the extension module
         install(
             TARGETS ${target}
             LIBRARY DESTINATION breast/${_subdir}
             RUNTIME DESTINATION breast/${_subdir}
         )
+
+        # Only install Python package files if NOT core-only
+        if(NOT BREAST_CORE_ONLY)
+            install(
+                FILES "${CMAKE_CURRENT_BINARY_DIR}/__init__.py"
+                DESTINATION breast/${_subdir}
+                OPTIONAL
+            )
+        endif()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Manual dev mode (build.sh)
@@ -114,12 +125,19 @@ function(softsim_install_to_pkg target)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "$<TARGET_FILE:${target}>"
                     "${_dest}/$<TARGET_FILE_NAME:${target}>"
+        )
 
-            COMMAND ${CMAKE_COMMAND}
-                    -D DEST_FILE="${_dest}/__init__.py"
-                    -D MODULE="${target}"
-                    -P "${CMAKE_SOURCE_DIR}/cmake/write_init.cmake"
+        # Only generate __init__.py if NOT core-only
+        if(NOT BREAST_CORE_ONLY)
+            add_custom_command(TARGET ${target} POST_BUILD
+                COMMAND ${CMAKE_COMMAND}
+                        -D DEST_FILE="${_dest}/__init__.py"
+                        -D MODULE="${target}"
+                        -P "${CMAKE_SOURCE_DIR}/cmake/write_init.cmake"
+            )
+        endif()
 
+        add_custom_command(TARGET ${target} POST_BUILD
             COMMENT "Installing ${target} → ${_dest}"
         )
 
