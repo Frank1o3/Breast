@@ -13,8 +13,9 @@ function(softsim_compile_options target)
     if(NOT MSVC)
 
         target_compile_options(${target} PRIVATE
-            -Wall -Wextra -Wpedantic
+            -Wall -Wextra -Wpedantic -fPIC
         )
+        set_target_properties(${target} PROPERTIES POSITION_INDEPENDENT_CODE O)
 
         if(CMAKE_BUILD_TYPE STREQUAL "Release")
 
