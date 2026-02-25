@@ -16,7 +16,7 @@ set(ENGINE_SOURCES
 )
 
 # ── Shared library ────────────────────────────────────────────────────────────
-add_library(engine SHARED ${ENGINE_SOURCES})
+add_library(engine STATIC ${ENGINE_SOURCES})
 
 # Public include — anything that links engine gets engine/ on its include path.
 # This means clients write:  #include "engine/solver.hpp"
@@ -42,10 +42,5 @@ target_link_libraries(engine PRIVATE collision)
 #   find_package(Eigen3 REQUIRED)
 #   target_link_libraries(engine PRIVATE Eigen3::Eigen)
 
-# ── Versioning (optional but good practice) ───────────────────────────────────
-set_target_properties(engine PROPERTIES
-    VERSION   1.0.0
-    SOVERSION 1
-)
 
 message(STATUS "[engine] configured — ${ENGINE_SOURCES}")

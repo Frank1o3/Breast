@@ -11,7 +11,7 @@ set(COLLISION_SOURCES
     src/broadphase.cpp
 )
 
-add_library(collision SHARED ${COLLISION_SOURCES})
+add_library(collision STATIC ${COLLISION_SOURCES})
 
 target_include_directories(collision
     PUBLIC  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
@@ -32,8 +32,3 @@ set_target_properties(collision PROPERTIES
 )
 
 message(STATUS "[collision] configured — ${COLLISION_SOURCES}")
-
-install(TARGETS collision
-    LIBRARY DESTINATION lib
-    RUNTIME DESTINATION bin
-)
