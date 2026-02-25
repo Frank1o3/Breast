@@ -14,13 +14,16 @@ dependencies = [
     "moderngl",
     "pygame-ce (>=2.5.6,<3.0.0)",
     "scipy (>=1.17.0,<2.0.0)",
-    "pybind11 (>=3.0.2,<4.0.0)",
-    "pybind11-stubgen (>=2.5.5,<3.0.0)",
 ]
 
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["scikit-build-core>=0.9", "pybind11"]
+build-backend = "scikit_build_core.build"
+
+[tool.scikit-build]
+cmake.source-dir = "cpp"
+wheel.packages = ["src/breast"]
+build-dir = "cpp/build"
 
 [tool.poetry.scripts]
 sim = "breast.sim:main"
@@ -28,5 +31,7 @@ sim = "breast.sim:main"
 [dependency-groups]
 dev = [
     "ruff (>=0.14.14,<0.15.0)",
-    "mypy (>=1.19.1,<2.0.0)"
+    "mypy (>=1.19.1,<2.0.0)",
+    "pybind11 (>=3.0.2,<4.0.0)",
+    "pybind11-stubgen (>=2.5.5,<3.0.0)"
 ]

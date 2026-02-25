@@ -1,8 +1,19 @@
 cmake_minimum_required(VERSION 3.22)
 project(softsim_ext LANGUAGES CXX)
 
+if(NOT DEFINED SKBUILD)
+    set(SKBUILD OFF)
+endif()
+
+# Detect packaging mode (scikit-build-core defines SKBUILD)
+if(DEFINED SKBUILD AND SKBUILD)
+    set(SOFTSIM_PACKAGING ON)
+else()
+    set(SOFTSIM_PACKAGING OFF)
+endif()
+
 # ─────────────────────────────────────────────────────────────────────────────
-# C++ standard (all sub-projects inherit this)
+# C++ standard
 # ─────────────────────────────────────────────────────────────────────────────
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,45 +28,48 @@ endif()
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Output directories — all .so/.pyd land in build/lib
+# Output directories (manual builds only)
+# scikit-build-core ignores these and uses install()
 # ─────────────────────────────────────────────────────────────────────────────
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+if(NOT SKBUILD)
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+endif()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Where to copy finished extension modules into the Python package.
-# build.sh passes -DBREAST_PKG_DIR automatically.
+# Optional local-dev copy destination
+# Only used when building manually via build.sh
+# scikit-build-core does NOT pass this variable
 # ─────────────────────────────────────────────────────────────────────────────
-set(BREAST_PKG_DIR "${CMAKE_SOURCE_DIR}/../src/breast"
-    CACHE PATH "Destination for built Python extension modules")
+set(BREAST_PKG_DIR ""
+    CACHE PATH "Destination for built Python extension modules (dev only)")
+
+if(BREAST_PKG_DIR)
+    message(STATUS "Dev mode: extension modules will be copied to ${BREAST_PKG_DIR}")
+else()
+    message(STATUS "Packaging mode: using install() rules (scikit-build)")
+endif()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Shared CMake helpers (compile flags, install macros)
+# Shared CMake helpers
 # ─────────────────────────────────────────────────────────────────────────────
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 include(common)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Python
-# build.sh always passes -DPython_EXECUTABLE so this picks up the venv Python.
+# Let build backend control version
 # ─────────────────────────────────────────────────────────────────────────────
-find_package(Python 3.9 REQUIRED COMPONENTS Interpreter Development.Module)
+find_package(Python REQUIRED COMPONENTS Interpreter Development.Module)
 message(STATUS "Python: ${Python_EXECUTABLE} (${Python_VERSION})")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# pybind11 — four-level resolution, first hit wins:
-#
-#  1. System cmake config    (apt install pybind11-dev)
-#  2. Active Python package  (pip/poetry/uv install pybind11)
-#  3. Git submodule          (third_party/pybind11  — offline-safe)
-#  4. FetchContent download  (network, last resort)
+# pybind11 resolution
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Level 1 — system cmake package
 find_package(pybind11 CONFIG QUIET)
 
-# Level 2 — ask the resolved Python (covers pip/poetry/uv envs)
 if(NOT pybind11_FOUND)
     execute_process(
         COMMAND "${Python_EXECUTABLE}" -c
@@ -70,19 +84,16 @@ if(NOT pybind11_FOUND)
     endif()
 endif()
 
-# Level 3 — git submodule (third_party/pybind11)
 if(NOT pybind11_FOUND)
     set(_pb11_submodule "${CMAKE_SOURCE_DIR}/third_party/pybind11")
     if(EXISTS "${_pb11_submodule}/CMakeLists.txt")
-        message(STATUS "pybind11: using git submodule at ${_pb11_submodule}")
+        message(STATUS "pybind11: using git submodule")
         add_subdirectory("${_pb11_submodule}" pybind11_sub EXCLUDE_FROM_ALL)
         set(pybind11_FOUND TRUE)
     endif()
 endif()
 
-# Level 4 — FetchContent (requires network, only triggers if submodule absent)
 if(NOT pybind11_FOUND)
-    message(STATUS "pybind11: not found locally — fetching via FetchContent (requires network)")
     include(FetchContent)
     FetchContent_Declare(
         pybind11
@@ -95,51 +106,43 @@ if(NOT pybind11_FOUND)
 endif()
 
 if(NOT pybind11_FOUND)
-    message(FATAL_ERROR
-        "pybind11 could not be found by any method.\n"
-        "Options:\n"
-        "  pip install pybind11                    (pip / venv)\n"
-        "  poetry add --group dev pybind11         (poetry)\n"
-        "  uv add --dev pybind11                   (uv)\n"
-        "  git submodule add https://github.com/pybind/pybind11 cpp/third_party/pybind11\n"
-    )
+    message(FATAL_ERROR "pybind11 could not be resolved.")
 endif()
 
 message(STATUS "pybind11: ${pybind11_VERSION}")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Optional: OpenMP (shared across all modules that opt in)
+# Optional OpenMP
 # ─────────────────────────────────────────────────────────────────────────────
 find_package(OpenMP)
 if(OpenMP_CXX_FOUND)
-    message(STATUS "OpenMP: ${OpenMP_CXX_VERSION} (${OpenMP_CXX_FLAGS})")
-else()
-    message(WARNING "OpenMP not found — parallel kernels will run single-threaded")
+    message(STATUS "OpenMP: ${OpenMP_CXX_VERSION}")
 endif()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Modules (each builds a shared lib)
+# Modules
 # ─────────────────────────────────────────────────────────────────────────────
 add_subdirectory(modules/collision)
 add_subdirectory(modules/engine)
-# add_subdirectory(modules/rendering)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Bindings (each builds a pybind11 extension module)
+# Bindings
 # ─────────────────────────────────────────────────────────────────────────────
 add_subdirectory(bindings)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Optional stub generation (cmake --build build --target stubs)
-# Requires:  pip install pybind11-stubgen
+# Optional stub generation
+# Only valid in dev mode (needs local package path)
 # ─────────────────────────────────────────────────────────────────────────────
-add_custom_target(stubs
-    COMMENT "Generating Python stubs via pybind11-stubgen"
-    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
-    COMMAND ${CMAKE_COMMAND} -E env
-            "PYTHONPATH=${CMAKE_BINARY_DIR}/lib:$ENV{PYTHONPATH}"
-            "${Python_EXECUTABLE}" -m pybind11_stubgen
-                --output-dir "${BREAST_PKG_DIR}/engine"
-                _engine
-    DEPENDS _engine
-)
+if(BREAST_PKG_DIR)
+    add_custom_target(stubs
+        COMMENT "Generating Python stubs via pybind11-stubgen"
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+        COMMAND ${CMAKE_COMMAND} -E env
+                "PYTHONPATH=${CMAKE_BINARY_DIR}/lib:$ENV{PYTHONPATH}"
+                "${Python_EXECUTABLE}" -m pybind11_stubgen
+                    --output-dir "${BREAST_PKG_DIR}/engine"
+                    _engine
+        DEPENDS _engine
+    )
+endif()
