@@ -31,7 +31,7 @@ message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 # Output directories (manual builds only)
 # scikit-build-core ignores these and uses install()
 # ─────────────────────────────────────────────────────────────────────────────
-if(NOT SKBUILD)
+if(NOT DEFINED SKBUILD AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
     set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
     set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
