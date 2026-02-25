@@ -43,16 +43,19 @@ jobs:
       - run: python -m cibuildwheel --output-dir wheelhouse
         env:
           CIBW_BUILD: "cp310-* cp311-* cp312-* cp313-*"
+
+          CIBW_ARCHS_LINUX: "x86_64"
           CIBW_ARCHS_WINDOWS: "AMD64"
           CIBW_ARCHS_MACOS: "x86_64 arm64"
+
           CIBW_SKIP: "*-musllinux_*"
           CIBW_BUILD_VERBOSITY: "1"
-          CIBW_ENVIRONMENT: CMAKE_ARGS="-DBREAST_CORE_ONLY=ON"
 
+          CIBW_ENVIRONMENT: CMAKE_ARGS="-DBREAST_CORE_ONLY=ON"
           CMAKE_ARGS: "-DBREAST_CORE_ONLY=ON"
 
           CIBW_BEFORE_ALL_LINUX: |
-            yum install -y ccache || microdnf install -y ccache
+            yum install -y ccache || true
 
           CIBW_ENVIRONMENT_LINUX: >
             CC="ccache gcc"
